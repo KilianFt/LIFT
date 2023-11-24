@@ -1,20 +1,22 @@
+import random
+
 import numpy as np
 import matplotlib.pyplot as plt
 
 
+def get_action_params(action, num_values):
+    seed = hash(tuple(action))
+    random.seed(seed)
+    params = [random.random() for _ in range(num_values)]
+    return params
+
+
 class ParametrizedSin:
-    def __init__(self, amplitude: float = .1, phase_shift: float = 0., period: float = 1., height: float = 0.):
-        self.amplitude = amplitude
-        self.phase_shift = phase_shift
-        self.period = period
-        self.height = height
-
-    def __call__(self, x):
-        return self.height + self.amplitude * np.sin(self.phase_shift + self.period * x)
+    def __call__(self, x, action):
+        height, amplitude, phase_shift, period = get_action_params(action, 4)
+        return height + amplitude * np.sin(phase_shift + period * x)
     
-
 # TODO
-# - parameterize depeding on action
 # - how to handle action transitions
 # - what is the input of sample? a sequence of actions?
 
@@ -31,13 +33,15 @@ class EMGSimulator:
         ts = np.arange(start_time, end_time, step=self.step_size)
 
         self.timestep = end_time
+        window = np.stack([ch(ts, action+ch_id) for ch_id, ch in enumerate(self.channels)])
 
-        return np.stack([ch(ts) for ch in self.channels])
+        return window
     
 
 if __name__ == '__main__':
     emg_sim = EMGSimulator(2)
-    emgs = [emg_sim.sample(None, 10) for _ in range(3)]
+    emgs = [emg_sim.sample(np.array([1,0]), 100) for _ in range(3)]
     emg_series = np.concatenate(emgs, axis=1)
+    plt.plot(emg_series[0,:])
     plt.plot(emg_series[1,:])
     plt.show()

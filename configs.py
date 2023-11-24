@@ -2,4 +2,4 @@ import dataclasses
 
 @dataclasses.dataclass
 class BaseConfig:
-    teacher_train_timesteps: int = 120_000
+    teacher_train_timesteps: int = 150_000

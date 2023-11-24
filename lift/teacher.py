@@ -1,7 +1,9 @@
 import os
 from pathlib import Path
+
 import gymnasium as gym
 from stable_baselines3 import TD3
+from stable_baselines3.common.evaluation import evaluate_policy
 
 
 def maybe_train_teacher(config):
@@ -18,6 +20,8 @@ def maybe_train_teacher(config):
         print('Loading trained teacher')
         env = gym.make('FetchReachDense-v2', max_episode_steps=100)
         teacher = TD3.load(teacher_filename, env=env)
+        mean_reward, _ = evaluate_policy(teacher, teacher.get_env(), n_eval_episodes=10)
+        print(f"Mean reward {mean_reward}")
 
     return teacher
 
