@@ -3,6 +3,10 @@ import random
 import numpy as np
 import matplotlib.pyplot as plt
 
+# TODO
+# - how to handle action transitions
+# - simultaneous actions should be superposition of single ones
+
 
 def get_action_params(action, num_values):
     seed = hash(tuple(action))
@@ -15,10 +19,7 @@ class ParametrizedSin:
     def __call__(self, x, action):
         height, amplitude, phase_shift, period = get_action_params(action, 4)
         return height + amplitude * np.sin(phase_shift + period * x)
-    
-# TODO
-# - how to handle action transitions
-# - what is the input of sample? a sequence of actions?
+
 
 class EMGSimulator:
     def __init__(self, n_channels: int):
@@ -39,9 +40,12 @@ class EMGSimulator:
     
 
 if __name__ == '__main__':
-    emg_sim = EMGSimulator(2)
-    emgs = [emg_sim.sample(np.array([1,0]), 100) for _ in range(3)]
+    emg_sim = EMGSimulator(4)
+    emgs = [emg_sim.sample(np.array([1,0,1]), 100) for _ in range(3)]
+    emgs += [emg_sim.sample(np.array([1,0,1,1]), 100) for _ in range(3)]
+    emgs += [emg_sim.sample(np.array([5,2,0,1,1]), 100) for _ in range(3)]
     emg_series = np.concatenate(emgs, axis=1)
-    plt.plot(emg_series[0,:])
-    plt.plot(emg_series[1,:])
+
+    for emg_channel in emg_series:
+        plt.plot(emg_channel)
     plt.show()

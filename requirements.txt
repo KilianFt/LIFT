@@ -1,4 +1,5 @@
 torch
 numpy
+lightning
 stable-baselines3
 gymnasium-robotics
