@@ -6,5 +6,6 @@ class BaseConfig:
     n_channels: int = 4
     window_size: int = 100
     n_steps_rollout: int = 1000
-    batch_size: int = 32
-    epochs: int = 10
+    batch_size: int = 64
+    epochs: int = 100
+    lr: float = 1e-3

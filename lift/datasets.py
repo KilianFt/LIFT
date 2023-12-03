@@ -12,4 +12,3 @@ class EMGSLDataset(Dataset):
     
     def __getitem__(self, idx):
         return self.obs[idx], self.action[idx]
-    
