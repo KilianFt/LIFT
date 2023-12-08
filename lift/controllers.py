@@ -49,3 +49,16 @@ class EMGPolicy(L.LightningModule):
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
         return optimizer
+
+
+class EMGAgent:
+    def __init__(self, policy):
+        self.policy = policy
+
+    def sample_action(self, observation) -> float:
+        emg_obs = torch.tensor(observation['emg_observation'], dtype=torch.float32)
+        action = self.policy(emg_obs)
+        return action.detach().numpy()
+
+    def update(self):
+        pass

@@ -1,9 +1,11 @@
 import os
 from pathlib import Path
 
+import wandb
 import gymnasium as gym
 from stable_baselines3 import TD3
-from stable_baselines3.common.evaluation import evaluate_policy
+
+from lift.evaluation import evaluate_emg_policy
 
 
 def maybe_train_teacher(config):    
@@ -21,8 +23,10 @@ def maybe_train_teacher(config):
     else:
         print('Loading trained teacher')
         teacher = TD3.load(teacher_filename, env=env)
-        mean_reward, _ = evaluate_policy(teacher, teacher.get_env(), n_eval_episodes=10)
-        print(f"Mean reward {mean_reward}")
+
+    mean_reward = evaluate_emg_policy(teacher.get_env(), teacher, is_teacher=True)
+    wandb.log({'teacher_reward': mean_reward})
+    print(f"Teacher reward {mean_reward}")
 
     return teacher
 

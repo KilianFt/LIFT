@@ -3,6 +3,7 @@ import numpy as np
 
 from lift.simulator import EMGSimulator
 
+
 class EMGWrapper(gym.Wrapper):
     def __init__(self, teacher, config):
         super().__init__(teacher.get_env())

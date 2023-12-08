@@ -1,5 +1,6 @@
 *.zip
 lightning_logs/
+wandb/
 test.ipynb
 
 # Byte-compiled / optimized / DLL files

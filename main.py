@@ -1,3 +1,5 @@
+import wandb
+
 from configs import BaseConfig
 from lift.teacher import maybe_train_teacher
 from lift.environment import EMGWrapper
@@ -6,6 +8,7 @@ import pretraining
 
 def main():
     config = BaseConfig()
+    run = wandb.init(project='lift', config=config)
 
     teacher = maybe_train_teacher(config)
 
