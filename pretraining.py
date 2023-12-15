@@ -49,9 +49,9 @@ def train_policy(emg_env, config):
 
     input_size = config.n_channels * config.window_size
     action_size = emg_env.action_space.shape[0]
-
-    mlp = MLP(input_size=input_size, output_size=action_size, hidden_sizes=[128,128])
-    pl_model = EMGPolicy(lr=config.lr, model=mlp)
+    hidden_sizes = [config.hidden_size for _ in range(config.n_layers)]
+    model = MLP(input_size=input_size, output_size=action_size, hidden_sizes=hidden_sizes)
+    pl_model = EMGPolicy(lr=config.lr, model=model)
     agent = EMGAgent(policy=pl_model.model)
 
     trainer = L.Trainer(max_epochs=config.epochs, log_every_n_steps=1, check_val_every_n_epoch=1,
