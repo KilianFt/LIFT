@@ -1,3 +1,5 @@
+import pickle
+
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -124,6 +126,10 @@ class Trainer:
             loss = obj_func(**p.kwargs)
             optimizer.tell(p, loss)
             epoch_loss.append(loss)
+
+        recommendation = optimizer.provide_recommendation()
+        with open('best_params.pkl', 'wb') as f:
+            pickle.dump(recommendation.kwargs, f)
 
         epoch_loss = np.mean(epoch_loss)
         return epoch_loss

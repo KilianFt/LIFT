@@ -3,3 +3,6 @@ numpy
 lightning
 stable-baselines3
 gymnasium-robotics
+libemg==0.0.1
+nevergrad==1.0.1
+PyWavelets==1.5.0
