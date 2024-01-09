@@ -22,6 +22,22 @@ def get_action_params(action, num_values):
     return params
 
 
+class FakeSimulator:
+    def __init__(self, num_values=10, noise=0.1):
+        self.num_values = num_values
+        self.noise = noise
+
+    def __call__(self, actions):
+        features = []
+        for action in actions:
+            params = get_action_params(action, num_values=self.num_values)
+            params = np.array(params)
+            params += np.random.rand(*params.shape) * self.noise
+            features.append(params)
+
+        return np.stack(features)
+
+
 class ParametrizedSin:
     def __call__(self, x, action):
         height, amplitude, phase_shift, period = get_action_params(action, 4)
@@ -99,7 +115,7 @@ class WindowSimulator:
         self.num_channels = num_channels
         self.window_size = window_size
         self.burst_durations = [window_size // num_bursts] * (self.num_bursts - 1)
-        self.burst_durations = self.burst_durations + [window_size - np.sum(self.burst_durations)]
+        self.burst_durations = self.burst_durations + [window_size - int(np.sum(self.burst_durations))]
         
         # init params
         self.bias_range = torch.ones(self.num_bursts, self.num_actions, self.num_channels)
@@ -114,6 +130,8 @@ class WindowSimulator:
         self.emg_range = emg_range
     
     def transform_params(self, bias_range, emg_range):
+        # TODO limits should never be > 1
+        # do we need random limits / biases when we have a Uniform distribution?
         bias_range = 0.1 * torch.relu(bias_range + torch.randn_like(bias_range) * self.noise) + 1e-5
         emg_range = F.relu(emg_range + torch.randn_like(emg_range) * self.noise) + 1e-5
         return bias_range, emg_range
@@ -142,7 +160,8 @@ class WindowSimulator:
         features = np.stack(list(features.values()), axis=-1)
         features = torch.from_numpy(features).flatten(start_dim=1).to(torch.float32)
         return features
-    
+
+
 if __name__ == '__main__':
     simulator_type = 'normal' # 'sin'
     

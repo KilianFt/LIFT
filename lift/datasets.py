@@ -8,8 +8,8 @@ from torch.utils.data import Dataset
 
 class EMGSLDataset(Dataset):
     def __init__(self, obs, action):
-        self.obs = torch.tensor(obs, dtype=torch.float32)
-        self.action = torch.tensor(action, dtype=torch.float32)
+        self.obs = torch.tensor(np.stack(obs), dtype=torch.float32)
+        self.action = torch.tensor(np.stack(action), dtype=torch.float32)
 
     def __len__(self):
         return len(self.obs)

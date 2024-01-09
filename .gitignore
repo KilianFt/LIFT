@@ -1,6 +1,7 @@
 *.zip
 lightning_logs/
 wandb/
+models/
 test.ipynb
 .DS_STORE
 

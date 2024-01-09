@@ -1,4 +1,6 @@
 from collections import defaultdict
+from pathlib import Path
+import pickle
 
 from tqdm import tqdm
 import wandb
@@ -35,13 +37,20 @@ def get_pretrain_dataloaders(history, config, train_percentage: float = 0.8):
     val_size = len(dataset) - train_size
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
-    train_dataloader = DataLoader(train_dataset, batch_size=config.batch_size)
+    train_dataloader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True)
     val_dataloader = DataLoader(val_dataset, batch_size=config.batch_size)
     return train_dataloader, val_dataloader
 
 
 def train_policy(emg_env, config):
-    history = rollout(emg_env, config)
+    hist_name = Path('datasets') / 'rollout_hist.pkl'
+    if hist_name.exists():
+        with open(hist_name, 'rb') as f:
+            history = pickle.load(f)
+    else:
+        history = rollout(emg_env, config)
+        with open(hist_name, 'wb') as f:
+            pickle.dump(history, f)
 
     logger = WandbLogger(log_model="all")
 
@@ -53,6 +62,9 @@ def train_policy(emg_env, config):
     model = MLP(input_size=input_size, output_size=action_size, hidden_sizes=hidden_sizes)
     pl_model = EMGPolicy(lr=config.lr, model=model)
     agent = EMGAgent(policy=pl_model.model)
+
+    before_mean_reward = evaluate_emg_policy(emg_env, agent)
+    print(f"Pretrain reward before training {before_mean_reward}")
 
     trainer = L.Trainer(max_epochs=config.epochs, log_every_n_steps=1, check_val_every_n_epoch=1,
                         enable_checkpointing=False, logger=logger, gradient_clip_val=config.gradient_clip_val)
