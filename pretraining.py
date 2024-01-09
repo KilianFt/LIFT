@@ -43,7 +43,7 @@ def get_pretrain_dataloaders(history, config, train_percentage: float = 0.8):
 
 
 def train_policy(emg_env, config):
-    hist_name = Path('datasets') / 'rollout_hist.pkl'
+    hist_name = Path('datasets') / f'rollout_hist_{(config.n_channels*config.window_size)}.pkl'
     if hist_name.exists():
         with open(hist_name, 'rb') as f:
             history = pickle.load(f)
@@ -59,7 +59,7 @@ def train_policy(emg_env, config):
     input_size = config.n_channels * config.window_size
     action_size = emg_env.action_space.shape[0]
     hidden_sizes = [config.hidden_size for _ in range(config.n_layers)]
-    model = MLP(input_size=input_size, output_size=action_size, hidden_sizes=hidden_sizes)
+    model = MLP(input_size=input_size, output_size=action_size, hidden_sizes=hidden_sizes, dropout=config.dropout)
     pl_model = EMGPolicy(lr=config.lr, model=model)
     agent = EMGAgent(policy=pl_model.model)
 

@@ -4,15 +4,21 @@ from torch import nn
 
 
 class MLP(nn.Module):
-    def __init__(self, input_size, hidden_sizes, output_size):
+    def __init__(self, input_size, hidden_sizes, output_size, use_batch_norm=False, dropout=0.1):
         super(MLP, self).__init__()
 
         layers = []
         layers.append(nn.Linear(input_size, hidden_sizes[0]))
+        layers.append(nn.Dropout(p=dropout))
+        if use_batch_norm:
+            layers.append(nn.BatchNorm1d(hidden_sizes[0]))
         layers.append(nn.ReLU(inplace=True))
 
         for i in range(len(hidden_sizes) - 1):
             layers.append(nn.Linear(hidden_sizes[i], hidden_sizes[i + 1]))
+            layers.append(nn.Dropout(p=dropout))
+            if use_batch_norm:
+                layers.append(nn.BatchNorm1d(hidden_sizes[i + 1]))
             layers.append(nn.ReLU(inplace=True))
 
         layers.append(nn.Linear(hidden_sizes[-1], output_size))

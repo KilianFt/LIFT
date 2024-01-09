@@ -1,14 +1,14 @@
 import gymnasium as gym
 import numpy as np
 
-from lift.simulator.simulator import EMGSimulator, FakeSimulator
+from lift.simulator.simulator import FakeSimulator
 
 
 class EMGWrapper(gym.Wrapper):
     def __init__(self, teacher, config):
         super().__init__(teacher.get_env())
         self.teacher = teacher
-        self.emg_simulator = FakeSimulator(num_values=config.n_channels * config.window_size, noise=config.noise)
+        self.emg_simulator = FakeSimulator(num_values=(config.n_channels * config.window_size), noise=config.noise)
         self.observation_space["observation"] = gym.spaces.Box(low=-1, high=1,
                                                                shape=(config.n_channels, config.window_size),
                                                                dtype=np.float64)

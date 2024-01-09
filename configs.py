@@ -2,14 +2,17 @@ import dataclasses
 
 @dataclasses.dataclass
 class BaseConfig:
+    seed: int = 100
     teacher_train_timesteps: int = 150_000
     n_channels: int = 1
     window_size: int = 32
-    n_steps_rollout: int = 10_000
-    hidden_size: int = 128
-    n_layers: int = 2
-    batch_size: int = 128 * 2
+    n_steps_rollout: int = 20_000
+    hidden_size: int = 256
+    n_layers: int = 7
+    dropout: float = .45
+    batch_size: int = 128
     epochs: int = 10
-    lr: float = 1e-4
-    gradient_clip_val: float = 1.0
+    lr: float = 3e-4
+    gradient_clip_val: float = 0.4
     noise: float = 0.1
+    use_batch_norm: bool = True
