@@ -22,6 +22,7 @@ class MLP(nn.Module):
             layers.append(nn.ReLU(inplace=True))
 
         layers.append(nn.Linear(hidden_sizes[-1], output_size))
+        layers.append(nn.Tanh())
 
         self.network = nn.Sequential(*layers)
 

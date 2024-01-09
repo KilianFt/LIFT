@@ -15,7 +15,7 @@ class EMGWrapper(gym.Wrapper):
 
     def _obs_to_emg(self, state):
         ideal_action, _ = self.teacher.predict(state)
-        return self.emg_simulator(ideal_action)
+        return state['observation']#self.emg_simulator(ideal_action)
 
     def reset(self):
         state = self.env.reset()

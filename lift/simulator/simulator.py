@@ -28,6 +28,7 @@ class FakeSimulator:
         self.noise = noise
 
     def __call__(self, actions):
+        # TODO similar actions should have similar values, now it is just random as actions are continuous
         features = []
         for action in actions:
             params = get_action_params(action, num_values=self.num_values)
