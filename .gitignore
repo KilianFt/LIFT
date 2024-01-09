@@ -1,4 +1,5 @@
 *.zip
+*.pkl
 lightning_logs/
 wandb/
 models/
