@@ -8,14 +8,14 @@ class EMGWrapper(gym.Wrapper):
     def __init__(self, teacher, config):
         super().__init__(teacher.get_env())
         self.teacher = teacher
-        self.emg_simulator = FakeSimulator(num_values=(config.n_channels * config.window_size), noise=config.noise)
+        self.emg_simulator = FakeSimulator(action_size=config.action_size, features_per_action=config.n_channels, noise=config.noise)
         self.observation_space["observation"] = gym.spaces.Box(low=-1, high=1,
                                                                shape=(config.n_channels, config.window_size),
                                                                dtype=np.float64)
 
     def _obs_to_emg(self, state):
         ideal_action, _ = self.teacher.predict(state)
-        return state['observation']#self.emg_simulator(ideal_action)
+        return self.emg_simulator(ideal_action)
 
     def reset(self):
         state = self.env.reset()

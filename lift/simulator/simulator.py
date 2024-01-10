@@ -15,28 +15,26 @@ from libemg.feature_extractor import FeatureExtractor
 # - simultaneous actions should be superposition of single ones
 
 
-def get_action_params(action, num_values):
-    seed = hash(tuple(action))
-    random.seed(seed)
-    params = [random.random() for _ in range(num_values)]
-    return params
-
 
 class FakeSimulator:
-    def __init__(self, num_values=10, noise=0.1):
-        self.num_values = num_values
+    def __init__(self, action_size=4, features_per_action=4, noise=0.1):
         self.noise = noise
+        self.features_per_action = features_per_action
+        self.weights = np.random.rand(1, (action_size*features_per_action))
+        self.biases = np.random.rand(1, (action_size*features_per_action))
 
     def __call__(self, actions):
-        # TODO similar actions should have similar values, now it is just random as actions are continuous
-        features = []
-        for action in actions:
-            params = get_action_params(action, num_values=self.num_values)
-            params = np.array(params)
-            params += np.random.rand(*params.shape) * self.noise
-            features.append(params)
+        if not isinstance(actions, np.ndarray):
+            actions = np.array(actions)
+        n_actions = actions.shape[0]
+        rep_actions = actions.repeat(self.features_per_action, axis=1)
+        rep_weights = self.weights.repeat(n_actions, axis=0)
+        rep_biases = self.biases.repeat(n_actions, axis=0)
 
-        return np.stack(features)
+        assert rep_actions.shape == rep_weights.shape == rep_biases.shape, 'Shape mismatch'
+
+        features = rep_actions * rep_weights + rep_biases
+        return features
 
 
 class WindowSimulator:
