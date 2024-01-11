@@ -1,7 +1,7 @@
-import dataclasses
+from pydantic import BaseModel
 
-@dataclasses.dataclass
-class BaseConfig:
+
+class BaseConfig(BaseModel):
     seed: int = 100
     teacher_train_timesteps: int = 150_000
     action_size: int = 4 # could be read from env
