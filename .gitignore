@@ -1,3 +1,11 @@
+*.zip
+*.pkl
+lightning_logs/
+wandb/
+models/
+test.ipynb
+.DS_STORE
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

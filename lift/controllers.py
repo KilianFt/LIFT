@@ -1,0 +1,71 @@
+import lightning as L
+import torch
+from torch import nn
+
+
+class MLP(nn.Module):
+    def __init__(self, input_size, hidden_sizes, output_size, use_batch_norm=False, dropout=0.1):
+        super(MLP, self).__init__()
+
+        layers = []
+        layers.append(nn.Linear(input_size, hidden_sizes[0]))
+        layers.append(nn.Dropout(p=dropout))
+        if use_batch_norm:
+            layers.append(nn.BatchNorm1d(hidden_sizes[0]))
+        layers.append(nn.ReLU(inplace=True))
+
+        for i in range(len(hidden_sizes) - 1):
+            layers.append(nn.Linear(hidden_sizes[i], hidden_sizes[i + 1]))
+            layers.append(nn.Dropout(p=dropout))
+            if use_batch_norm:
+                layers.append(nn.BatchNorm1d(hidden_sizes[i + 1]))
+            layers.append(nn.ReLU(inplace=True))
+
+        layers.append(nn.Linear(hidden_sizes[-1], output_size))
+        layers.append(nn.Tanh())
+
+        self.network = nn.Sequential(*layers)
+
+    def forward(self, x):
+        x = x.flatten(start_dim=1)
+        return self.network(x)
+
+
+class EMGPolicy(L.LightningModule):
+    def __init__(self, model: nn.Module, lr: float):
+        super(EMGPolicy, self).__init__()
+        self.lr = lr
+        self.model = model
+        self.criterion = nn.MSELoss()
+
+    def training_step(self, batch, _):
+        x, y = batch
+        predictions = self.model(x)
+        loss = self.criterion(predictions, y)
+        self.log("train_loss", loss)
+        return loss
+
+    def validation_step(self, val_batch, _):
+        x, y = val_batch
+        predictions = self.model(x)
+        val_loss = self.criterion(predictions, y)
+        self.log("val_loss", val_loss)
+
+        return val_loss
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
+        return optimizer
+
+
+class EMGAgent:
+    def __init__(self, policy):
+        self.policy = policy
+
+    def sample_action(self, observation) -> float:
+        emg_obs = torch.tensor(observation['emg_observation'], dtype=torch.float32)
+        action = self.policy(emg_obs)
+        return action.detach().numpy()
+
+    def update(self):
+        pass
