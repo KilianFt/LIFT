@@ -12,8 +12,10 @@ class BaseConfig(BaseModel):
     n_layers: int = 5
     dropout: float = .35
     batch_size: int = 256
-    epochs: int = 70
+    epochs: int = 30
     lr: float = 1e-4
     gradient_clip_val: float = 0.1
     noise: float = 0.1
     use_batch_norm: bool = False
+    checkpoint_frequency: int = 1
+    save_top_k: int = -1 # set to -1 to save all checkpoints
