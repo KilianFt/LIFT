@@ -1,8 +1,10 @@
 import gymnasium as gym
 import numpy as np
+import torch
 
 from lift.simulator.simulator import FakeSimulator
 
+"""TODO: handle different gym versions more cleanly, maybe don't use agent.get_env()"""
 
 class EMGWrapper(gym.Wrapper):
     def __init__(self, teacher, config):
@@ -30,3 +32,25 @@ class EMGWrapper(gym.Wrapper):
     def get_ideal_action(self, state):
         short_state = {key: value for key, value in state.items() if key != "emg_observation"}
         return self.teacher.predict(short_state)
+
+
+class UserSimulator(gym.Wrapper):
+    """Simulator maps intended action to emg and back to decoded action"""
+    def __init__(self, env, decoder, config):
+        super().__init__(env)
+        self.decoder = decoder
+        self.emg_simulator = FakeSimulator(
+            action_size=config.action_size, 
+            features_per_action=config.n_channels, 
+            noise=config.noise
+        )
+
+    def reset(self, seed=0):
+        state, info = self.env.reset()
+        return state, info
+
+    def step(self, action):
+        emg = self.emg_simulator(action[None])
+        decoded_action = self.decoder.sample_action({'emg_observation': emg})[-1]
+        state, reward, terminated, truncated, info = self.env.step(decoded_action)
+        return state, reward, terminated, truncated, info
