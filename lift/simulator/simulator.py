@@ -9,11 +9,13 @@ import torch.nn.functional as F
 import torch.distributions as torch_dist
 
 from libemg.feature_extractor import FeatureExtractor
+from libemg.utils import get_windows
+
+from lift.datasets import get_mad_sample
 
 # TODO
 # - how to handle action transitions
 # - simultaneous actions should be superposition of single ones
-
 
 
 class FakeSimulator:
@@ -60,7 +62,6 @@ class WindowSimulator:
         self.emg_range = emg_range
     
     def transform_params(self, bias_range, emg_range):
-        # TODO limits should never be > 1
         # do we need random limits / biases when we have a Uniform distribution?
         bias_range = 0.1 * torch.relu(bias_range + torch.randn_like(bias_range) * self.noise) + 1e-5
         emg_range = F.relu(emg_range + torch.randn_like(emg_range) * self.noise) + 1e-5
@@ -71,7 +72,10 @@ class WindowSimulator:
 
         # biases = torch_dist.Uniform(-self.bias_range, self.bias_range).sample()
         # limits = torch_dist.Uniform(torch.zeros_like(self.emg_range) + 1e-6, self.emg_range).sample()
-        biases, limits = self.transform_params(self.bias_range, self.emg_range)
+        # biases, limits = self.transform_params(self.bias_range, self.emg_range)
+
+        # TODO add noise to biases and limits
+        biases, limits = self.bias_range, self.emg_range
 
         window_parts = [None] * self.num_bursts
         for i in range(self.num_bursts):
@@ -90,6 +94,23 @@ class WindowSimulator:
         features = np.stack(list(features.values()), axis=-1)
         features = torch.from_numpy(features).flatten(start_dim=1).to(torch.float32)
         return features
+
+    def fit_params_to_mad_sample(self, data_path):
+        emg_list, label_list = get_mad_sample(data_path, filter_labels = True)
+        sort_id = np.argsort(label_list)
+        emg_list = [emg_list[i] for i in sort_id]
+
+        min_len = min([len(emg) for emg in emg_list])
+        short_emgs = [emg[:min_len,:] for emg in emg_list]
+        windows_list = [get_windows(s_emg, 200, 200, as_tensor=True) for s_emg in short_emgs]
+        windows = torch.stack(windows_list, dim=0)
+
+        mean_windows = windows.mean(dim=1)
+        emg_bias = mean_windows.mean(dim=-1)
+        window_wo_mean = mean_windows - emg_bias[:,:,None]
+        emg_limits = window_wo_mean.abs().max(dim=-1)[0]
+
+        self.set_params(emg_bias.unsqueeze(0), emg_limits.unsqueeze(0))
 
 
 if __name__ == '__main__':
