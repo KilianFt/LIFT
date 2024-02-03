@@ -85,15 +85,6 @@ class WindowSimulator:
         window = torch.einsum("ntac, na -> ntc", window, actions).transpose(-1, -2)
         # window += torch.randn_like(window) * self.noise
         return window
-    
-    def compute_features(self, windows, feature_list=['MAV', 'SSC', 'ZC', 'WL']):
-        features = FeatureExtractor().extract_features(
-            feature_list, 
-            windows.numpy()
-        )
-        features = np.stack(list(features.values()), axis=-1)
-        features = torch.from_numpy(features).flatten(start_dim=1).to(torch.float32)
-        return features
 
     def fit_params_to_mad_sample(self, data_path):
         emg_list, label_list = get_mad_sample(data_path, filter_labels = True)

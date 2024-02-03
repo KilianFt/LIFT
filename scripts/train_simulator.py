@@ -66,7 +66,7 @@ def main():
     data = torch.cat([features, labels], dim=-1)
     print(f"feature size: {features.shape}, label size: {labels.shape}")
     
-    num_bursts = 5
+    num_bursts = 1
     batch_size = 64
     grad_target = 1.
     d_iters = 50
@@ -77,7 +77,7 @@ def main():
         num_channels,
         window_size,
         num_bursts,
-        hidden_sizes=[64, 64],
+        hidden_sizes=[128, 128, 128, 128],
         batch_size=batch_size,
         grad_target=grad_target,
         d_iters=d_iters, 

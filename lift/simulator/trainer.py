@@ -8,6 +8,7 @@ from torch.autograd import grad as torch_grad
 
 from lift.neural_nets import MLP
 from lift.simulator.simulator import WindowSimulator
+from lift.utils import compute_features
 
 import nevergrad as ng
 
@@ -73,7 +74,7 @@ class Trainer:
             # sample fake
             actions = real_data[..., -self.num_actions:]
             windows = self.generator(actions)
-            fake_features = self.generator.compute_features(windows)
+            fake_features = compute_features(windows)
             fake_data = torch.cat([fake_features, actions], dim=-1)
 
             # train discriminator
@@ -104,7 +105,7 @@ class Trainer:
                 torch.from_numpy(emg_range).to(torch.float32),
             )
             windows = self.generator(actions)
-            features = self.generator.compute_features(windows)
+            features = compute_features(windows)
             fake_data = torch.cat([features, actions], dim=-1)
             with torch.no_grad():
                 d_out = torch.sigmoid(self.discriminator.forward(fake_data))
