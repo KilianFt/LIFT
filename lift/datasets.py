@@ -18,7 +18,7 @@ class EMGSLDataset(Dataset):
         return self.obs[idx], self.action[idx]
 
 
-def get_mad_sample(data_path, emg_min = -128, emg_max = 127, filter_labels = False):
+def get_mad_sample(data_path, emg_min = -128, emg_max = 127, desired_labels = None):
     emg = []
     labels = []
     for data_file in os.listdir(data_path):
@@ -43,8 +43,8 @@ def get_mad_sample(data_path, emg_min = -128, emg_max = 127, filter_labels = Fal
             emg.append(norm_emg)
             labels.append(label)
 
-    if filter_labels:
-        desired_labels = [0, 1, 2, 3, 4]
+    if desired_labels is not None:
+        # desired_labels = [0, 1, 2, 3, 4]
 
         filtered_labels = []
         filtered_emg = []

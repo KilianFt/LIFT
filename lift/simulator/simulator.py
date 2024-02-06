@@ -53,6 +53,7 @@ class WindowSimulator:
         self.bias_range = torch.ones(self.num_bursts, self.num_actions, self.num_channels)
         self.emg_range = torch.ones(self.num_bursts, self.num_actions, self.num_channels)
         self.noise = 0.1
+        self.recording_strength = 0.5 # scaling value that equals the recording
 
         self.bias_range_shape = [self.num_bursts, self.num_actions, self.num_channels]
         self.emg_range_shape = [self.num_bursts, self.num_actions, self.num_channels]
@@ -61,33 +62,48 @@ class WindowSimulator:
         self.bias_range = bias_range
         self.emg_range = emg_range
     
-    def transform_params(self, bias_range, emg_range):
-        # do we need random limits / biases when we have a Uniform distribution?
-        bias_range = 0.1 * torch.relu(bias_range + torch.randn_like(bias_range) * self.noise) + 1e-5
-        emg_range = F.relu(emg_range + torch.randn_like(emg_range) * self.noise) + 1e-5
-        return bias_range, emg_range
+    # what exactly does this transformation do? How would we use it when estimating limits and biases from data=
+    # def transform_params(self, bias_range, emg_range):
+    #     # do we need random limits / biases when we have a Uniform distribution?
+    #     bias_range = 0.1 * torch.relu(bias_range + torch.randn_like(bias_range) * self.noise) + 1e-5
+    #     emg_range = F.relu(emg_range + torch.randn_like(emg_range) * self.noise) + 1e-5
+    #     return bias_range, emg_range
     
     def __call__(self, actions):
-        batch_size = len(actions)
+        # batch_size = len(actions)
+        actions[actions.abs() < .1] = 0
 
-        # biases = torch_dist.Uniform(-self.bias_range, self.bias_range).sample()
-        # limits = torch_dist.Uniform(torch.zeros_like(self.emg_range) + 1e-6, self.emg_range).sample()
-        # biases, limits = self.transform_params(self.bias_range, self.emg_range)
+        # find scaling for each action to account for movement strength
+        scaling = torch.zeros((actions.shape[0], actions.shape[1]*2))
+        for action_idx, action in enumerate(actions):
+            for i, value in enumerate(action):
+                idx = i * 2 + (value < 0).type(torch.int)
+                scaling[action_idx, idx] = value.abs()
+        scaling = scaling / self.recording_strength
 
-        # TODO add noise to biases and limits
         biases, limits = self.bias_range, self.emg_range
+
+        biases += (torch.randn_like(biases) * 2 - 1) * self.noise
+        limits += (torch.randn_like(limits) * 2 - 1) * self.noise
+        limits.clip_(min=1e-5)
+
+        # map for active actions
+        action_map = (scaling.abs() > 0).type(torch.float32)
+
+        # get biases and limits for each action
+        # both are superpositions of the single action biases and limits
+        action_biases = torch.einsum('ijk, nj -> ink', biases, action_map)
+        action_limits = torch.einsum('ijk, nj -> ink', limits, scaling)
 
         window_parts = [None] * self.num_bursts
         for i in range(self.num_bursts):
-            window_parts[i] = torch_dist.Uniform(-limits[i], limits[i]).sample((batch_size, self.burst_durations[i],)) + biases[i]
-        window = torch.cat(window_parts, dim=-3)
-
-        window = torch.einsum("ntac, na -> ntc", window, actions).transpose(-1, -2)
-        # window += torch.randn_like(window) * self.noise
+            window_parts[i] = (torch_dist.Uniform(-action_limits, action_limits).sample((200,)) + action_biases).permute(1, 2, 3, 0)
+        window = torch.cat(window_parts, dim=-3).squeeze(0)
+        # is it fine that values can be > 1 or < -1?
         return window
 
-    def fit_params_to_mad_sample(self, data_path):
-        emg_list, label_list = get_mad_sample(data_path, filter_labels = True)
+    def fit_params_to_mad_sample(self, data_path, desired_labels = None):
+        emg_list, label_list = get_mad_sample(data_path, desired_labels = desired_labels)
         sort_id = np.argsort(label_list)
         emg_list = [emg_list[i] for i in sort_id]
 
