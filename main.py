@@ -1,8 +1,5 @@
-import random
-
-import torch
-import numpy as np
 import wandb
+import lightning as L
 
 from configs import BaseConfig
 from lift.teacher import maybe_train_teacher
@@ -13,10 +10,7 @@ import pretraining
 def main():
     run = wandb.init(project='lift')
     config = BaseConfig(**wandb.config)
-
-    torch.manual_seed(config.seed)
-    np.random.seed(config.seed)
-    random.seed(config.seed)
+    L.seed_everything(config.seed)
 
     teacher = maybe_train_teacher(config)
 

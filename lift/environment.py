@@ -3,6 +3,7 @@ import numpy as np
 import torch
 
 from lift.simulator.simulator import WindowSimulator
+from lift.utils import compute_features
 
 """TODO: handle different gym versions more cleanly, maybe don't use agent.get_env()"""
 
@@ -11,17 +12,21 @@ class EMGWrapper(gym.Wrapper):
         super().__init__(teacher.get_env())
         self.teacher = teacher
         data_path = './datasets/MyoArmbandDataset/PreTrainingDataset/Female0/training0/'
-        sim = WindowSimulator(num_actions=6, num_bursts=1, num_channels=8, window_size=200)
-        sim.fit_params_to_mad_sample(data_path, desired_labels=[1, 2, 3, 4, 5, 6])
+        self.emg_simulator = WindowSimulator(num_actions=6, num_bursts=config.n_bursts, num_channels=config.n_channels,
+                              window_size=config.window_size, noise=config.noise)
+        self.emg_simulator.fit_params_to_mad_sample(data_path, desired_labels=[1, 2, 3, 4, 5, 6])
 
         # TODO fix this, values can be > 1 and < -1
-        self.observation_space["observation"] = gym.spaces.Box(low=-1, high=1,
+        self.observation_space["observation"] = gym.spaces.Box(low=-3, high=3,
                                                                shape=(config.n_channels, config.window_size),
                                                                dtype=np.float64)
 
     def _obs_to_emg(self, state):
         ideal_action, _ = self.teacher.predict(state)
-        return self.emg_simulator(ideal_action)
+        # last action entry not used in fetch env
+        windows = self.emg_simulator(ideal_action[:,:3])
+        features = compute_features(windows)
+        return features
 
     def reset(self):
         state = self.env.reset()
@@ -43,11 +48,11 @@ class UserSimulator(gym.Wrapper):
     def __init__(self, env, decoder, config):
         super().__init__(env)
         self.decoder = decoder
-        self.emg_simulator = FakeSimulator(
-            action_size=config.action_size, 
-            features_per_action=config.n_channels, 
-            noise=config.noise
-        )
+        self.emg_simulator = WindowSimulator(num_actions=6,#FIXME make param
+                                             num_bursts=config.n_bursts,
+                                             num_channels=config.n_channels,
+                                             window_size=config.window_size,
+                                             noise=config.noise)
 
     def reset(self, seed=0):
         state, info = self.env.reset()

@@ -59,8 +59,8 @@ def get_mad_sample(data_path, emg_min = -128, emg_max = 127, desired_labels = No
     return emg, labels
 
 
-def get_mad_windows(data_path, window_size, emg_min = -128, emg_max = 127, filter_labels = False):
-    emg_list, label_list = get_mad_sample(data_path, emg_min, emg_max, filter_labels)
+def get_mad_windows(data_path, window_size, emg_min = -128, emg_max = 127, desired_labels = None):
+    emg_list, label_list = get_mad_sample(data_path, emg_min, emg_max, desired_labels)
 
     sort_id = np.argsort(label_list)
     label_list = [label_list[i] for i in sort_id]

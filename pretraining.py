@@ -45,7 +45,7 @@ def get_pretrain_dataloaders(history, config, train_percentage: float = 0.8):
 
 def train_policy(emg_env, config):
     """Supervised pretraining"""
-    hist_name = Path('datasets') / f'rollout_hist_{(config.n_channels*config.window_size)}.pkl'
+    hist_name = Path('datasets') / f'rollout_history_features_{(config.n_channels*config.window_size)}.pkl'
     if hist_name.exists():
         with open(hist_name, 'rb') as f:
             history = pickle.load(f)
@@ -54,17 +54,18 @@ def train_policy(emg_env, config):
         with open(hist_name, 'wb') as f:
             pickle.dump(history, f)
 
-        with open(Path('datasets') / f'rollout_params_{(config.n_channels*config.window_size)}.pkl', "wb") as f:
-            pickle.dump({
-                'weights': emg_env.emg_simulator.weights,
-                'biases': emg_env.emg_simulator.biases,
-            }, f)
+        # is this still needed when we fit params to MAD sample?
+        # with open(Path('datasets') / f'rollout_params_{(config.n_channels*config.window_size)}.pkl', "wb") as f:
+        #     pickle.dump({
+        #         'weights': emg_env.emg_simulator.weights,
+        #         'biases': emg_env.emg_simulator.biases,
+        #     }, f)
     
     logger = WandbLogger(log_model="all")
 
     train_dataloader, val_dataloader = get_pretrain_dataloaders(history, config)
 
-    input_size = config.n_channels * config.window_size
+    input_size = 32#config.n_channels * config.window_size FIXME
     action_size = emg_env.action_space.shape[0]
     hidden_sizes = [config.hidden_size for _ in range(config.n_layers)]
     model = MLP(input_size=input_size, output_size=action_size, hidden_sizes=hidden_sizes, dropout=config.dropout)
