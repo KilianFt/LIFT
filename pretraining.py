@@ -10,7 +10,7 @@ from lightning.pytorch.callbacks import ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 
 from lift.datasets import EMGSLDataset
-from lift.controllers import MLP, EMGPolicy, EMGAgent
+from lift.controllers import MLP, EMGPolicy, EMGAgent, EMGEncoder
 from lift.evaluation import evaluate_emg_policy
 
 
@@ -68,9 +68,10 @@ def train_policy(emg_env, config):
     input_size = 32#config.n_channels * config.window_size FIXME
     action_size = emg_env.action_space.shape[0]
     hidden_sizes = [config.hidden_size for _ in range(config.n_layers)]
-    model = MLP(input_size=input_size, output_size=action_size, hidden_sizes=hidden_sizes, dropout=config.dropout)
-    pl_model = EMGPolicy(lr=config.lr, model=model)
-    agent = EMGAgent(policy=pl_model.model)
+    # model = MLP(input_size=input_size, output_size=action_size, hidden_sizes=hidden_sizes, dropout=config.dropout)
+    # pl_model = EMGPolicy(lr=config.lr, model=model)
+    pl_model = EMGEncoder(config)
+    agent = EMGAgent(policy=pl_model.encoder)
 
     before_mean_reward = evaluate_emg_policy(emg_env, agent)
     print(f"Pretrain reward before training {before_mean_reward}")

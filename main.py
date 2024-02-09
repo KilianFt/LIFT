@@ -14,7 +14,7 @@ def main():
 
     teacher = maybe_train_teacher(config)
 
-    emg_env = EMGWrapper(teacher, config)
+    emg_env = EMGWrapper(teacher, config, use_features=True)
     policy = pretraining.train_policy(emg_env, config)
 
     emg_env.close()

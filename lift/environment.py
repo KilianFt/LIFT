@@ -8,9 +8,10 @@ from lift.utils import compute_features
 """TODO: handle different gym versions more cleanly, maybe don't use agent.get_env()"""
 
 class EMGWrapper(gym.Wrapper):
-    def __init__(self, teacher, config):
+    def __init__(self, teacher, config, use_features = False):
         super().__init__(teacher.get_env())
         self.teacher = teacher
+        self.use_features = use_features
         data_path = './datasets/MyoArmbandDataset/PreTrainingDataset/Female0/training0/'
         self.emg_simulator = WindowSimulator(num_actions=6, num_bursts=config.n_bursts, num_channels=config.n_channels,
                               window_size=config.window_size, noise=config.noise)
@@ -24,9 +25,10 @@ class EMGWrapper(gym.Wrapper):
     def _obs_to_emg(self, state):
         ideal_action, _ = self.teacher.predict(state)
         # last action entry not used in fetch env
-        windows = self.emg_simulator(ideal_action[:,:3])
-        features = compute_features(windows)
-        return features
+        out = self.emg_simulator(ideal_action[:,:3])
+        if self.use_features:
+            out = compute_features(out)
+        return out
 
     def reset(self):
         state = self.env.reset()
