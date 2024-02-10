@@ -46,6 +46,7 @@ class Encoder(nn.Module):
     
     def sample(self, x):
         p = self.forward(x)
+        # output normal dist
         z = F.gumbel_softmax(torch.log(p + 1e-6), tau=self.tau, hard=True)
         return z
 
@@ -70,9 +71,9 @@ class EMGEncoder(L.LightningModule):
         self.beta = config.encoder.beta
 
         x_dim = config.encoder.x_dim
-        z_dim = config.encoder.z_dim
+        z_dim = config.action_size
         h_dim = config.encoder.h_dim
-        hidden_dims = config.encoder.hidden_dims
+        hidden_dims = [config.encoder.hidden_size for _ in range(config.encoder.n_layers)]
         tau = config.encoder.tau
 
         self.encoder = Encoder(x_dim, z_dim, hidden_dims, tau=tau)
@@ -98,7 +99,7 @@ class EMGEncoder(L.LightningModule):
 
         nce_loss = self.compute_infonce_loss(x, z)
         kl_loss = compute_kl_loss(z, y)
-        
+
         loss = nce_loss + self.beta * kl_loss
         self.log("train_loss", loss)
         return loss
