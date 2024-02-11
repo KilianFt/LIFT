@@ -59,7 +59,7 @@ def get_mad_sample(data_path, emg_min = -128, emg_max = 127, desired_labels = No
     return emg, labels
 
 
-def get_mad_windows(data_path, window_size, emg_min = -128, emg_max = 127, desired_labels = None):
+def get_mad_windows(data_path, window_size, window_increment, emg_min = -128, emg_max = 127, desired_labels = None):
     emg_list, label_list = get_mad_sample(data_path, emg_min, emg_max, desired_labels)
 
     sort_id = np.argsort(label_list)
@@ -69,7 +69,7 @@ def get_mad_windows(data_path, window_size, emg_min = -128, emg_max = 127, desir
 
     min_len = min([len(emg) for emg in emg_list])
     short_emgs = [emg[:min_len,:] for emg in emg_list]
-    windows_list = [get_windows(s_emg, window_size, window_size, as_tensor=True) for s_emg in short_emgs]
+    windows_list = [torch.from_numpy(get_windows(s_emg, window_size, window_increment)) for s_emg in short_emgs]
     windows = torch.stack(windows_list, dim=0)
     flat_windows = windows.flatten(start_dim=0, end_dim=1)
 
