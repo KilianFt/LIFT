@@ -45,7 +45,7 @@ def get_pretrain_dataloaders(history, config, train_percentage: float = 0.8):
 
 def train_policy(emg_env, config):
     """Supervised pretraining"""
-    hist_name = Path('datasets') / f'rollout_history_features_{(config.n_channels*config.window_size)}.pkl'
+    hist_name = Path('datasets') / f'rollout_history_features_{(config.n_channels*config.window_size)}_v2.pkl'
     if hist_name.exists():
         with open(hist_name, 'rb') as f:
             history = pickle.load(f)

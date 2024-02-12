@@ -9,7 +9,7 @@ import torch.nn.functional as F
 import torch.distributions as torch_dist
 
 from libemg.utils import get_windows
-
+from lift.utils import compute_features
 from lift.datasets import get_mad_sample
 
 # TODO
@@ -38,8 +38,11 @@ class FakeSimulator:
 
 class WindowSimulator:
     """Assume equal burst durations, only tune ranges and biases"""
-    def __init__(self, num_actions=5, num_bursts=3, num_channels=8, window_size=200, noise=0.1):
-        self.num_actions = num_actions
+    def __init__(self, action_size=3, num_bursts=3, num_channels=8, window_size=200, noise=0.1,
+                 recording_strength=0.5, num_features=4, return_features=False):
+        # times 2 cause 1 action per direction of dof
+        self.return_features = return_features
+        self.num_actions = action_size * 2
         self.num_bursts = num_bursts
         self.num_channels = num_channels
         self.window_size = window_size
@@ -50,28 +53,29 @@ class WindowSimulator:
         self.bias_range = torch.ones(self.num_bursts, self.num_actions, self.num_channels)
         self.emg_range = torch.ones(self.num_bursts, self.num_actions, self.num_channels)
         self.noise = noise
-        self.recording_strength = 0.5 # scaling value that equals the recording (normal strength)
+        self.recording_strength = recording_strength # scaling value that equals the recording (normal strength)
 
         self.bias_range_shape = [self.num_bursts, self.num_actions, self.num_channels]
         self.emg_range_shape = [self.num_bursts, self.num_actions, self.num_channels]
+
+        feature_size = num_features * num_channels
+        self.feature_means = torch.zeros(feature_size)
+        self.feature_stds = torch.ones(feature_size)
     
     def set_params(self, bias_range, emg_range):
         self.bias_range = bias_range
         self.emg_range = emg_range
     
-    # what exactly does this transformation do? How would we use it when estimating limits and biases from data?
-    # def transform_params(self, bias_range, emg_range):
-    #     # do we need random limits / biases when we have a Uniform distribution?
-    #     bias_range = 0.1 * torch.relu(bias_range + torch.randn_like(bias_range) * self.noise) + 1e-5
-    #     emg_range = F.relu(emg_range + torch.randn_like(emg_range) * self.noise) + 1e-5
-    #     return bias_range, emg_range
+    def get_norm_features(self, emg_window):
+        features = compute_features(emg_window)
+        # return (features - self.feature_means) / self.feature_stds
+        return features
     
     def __call__(self, actions):
         if not isinstance(actions, torch.Tensor):
             actions = torch.tensor(actions, dtype=torch.float32).clone()
 
-        # batch_size = len(actions)
-        actions[actions.abs() < .1] = 0
+        # actions[actions.abs() < .1] = 0
 
         # find scaling for each action to account for movement strength
         scaling = torch.zeros((actions.shape[0], actions.shape[1]*2))
@@ -94,13 +98,17 @@ class WindowSimulator:
         action_biases = torch.einsum('ijk, nj -> ink', biases, action_map)
         action_limits = torch.einsum('ijk, nj -> ink', limits, scaling)
 
-        action_limits.clip_(min=.1)#, max=1.)
+        action_limits.clip_(min=1e-10)#, max=1.)
 
         window_parts = [None] * self.num_bursts
         for i in range(self.num_bursts):
             window_parts[i] = (torch_dist.Uniform(-action_limits, action_limits).sample((200,)) + action_biases).permute(1, 2, 3, 0)
         window = torch.cat(window_parts, dim=-3).squeeze(0)
         # is it fine that values can be > 1 or < -1?
+
+        if self.return_features:
+            return self.get_norm_features(window)
+        
         return window
 
     def fit_params_to_mad_sample(self, data_path, desired_labels = [1, 2, 3, 4, 5, 6]):
@@ -123,6 +131,12 @@ class WindowSimulator:
         emg_limits = window_wo_mean.abs().max(dim=-1)[0]
 
         self.set_params(emg_bias.unsqueeze(0), emg_limits.unsqueeze(0))
+
+        # compute feature means and stds
+        flat_windows = windows.flatten(start_dim=0, end_dim=1)
+        features = compute_features(flat_windows)
+        self.feature_means = features.mean(dim=0)
+        self.feature_stds = features.std(dim=0)
 
 
 # if __name__ == '__main__':

@@ -11,10 +11,9 @@ class EMGWrapper(gym.Wrapper):
     def __init__(self, teacher, config, use_features = False):
         super().__init__(teacher.get_env())
         self.teacher = teacher
-        self.use_features = use_features
         data_path = './datasets/MyoArmbandDataset/PreTrainingDataset/Female0/training0/'
-        self.emg_simulator = WindowSimulator(num_actions=6, num_bursts=config.n_bursts, num_channels=config.n_channels,
-                              window_size=config.window_size, noise=config.noise)
+        self.emg_simulator = WindowSimulator(action_size=config.action_size, num_bursts=config.simulator.n_bursts, num_channels=config.n_channels,
+                              window_size=config.window_size, noise=config.noise, recording_strength = config.simulator.recording_strength, return_features=use_features)
         self.emg_simulator.fit_params_to_mad_sample(data_path, desired_labels=[1, 2, 3, 4, 5, 6])
 
         # TODO fix this, values can be > 1 and < -1
@@ -26,8 +25,6 @@ class EMGWrapper(gym.Wrapper):
         ideal_action, _ = self.teacher.predict(state)
         # last action entry not used in fetch env
         out = self.emg_simulator(ideal_action[:,:3])
-        if self.use_features:
-            out = compute_features(out)
         return out
 
     def reset(self):

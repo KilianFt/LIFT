@@ -89,6 +89,9 @@ class EMGEncoder(L.LightningModule):
         self.critic_x = MLP(x_dim, h_dim, hidden_dims, dropout=0., activation=nn.SiLU, output_activation=None)
         self.critic_z = MLP(z_dim, h_dim, hidden_dims, dropout=0., activation=nn.SiLU, output_activation=None)
 
+        self.criterion = nn.MSELoss()
+
+
 
     def compute_infonce_loss(self, x, z):
         h_x = self.critic_x(x)
@@ -106,10 +109,10 @@ class EMGEncoder(L.LightningModule):
         y = y[:,:-1].clone()
         z = self.encoder.sample(x)
 
-        nce_loss = self.compute_infonce_loss(x, z)
-        kl_loss = compute_kl_loss(z, y)
-
-        loss = nce_loss + self.beta * kl_loss
+        # nce_loss = self.compute_infonce_loss(x, z)
+        # kl_loss = compute_kl_loss(z, y)
+        # loss = nce_loss + self.beta * kl_loss
+        loss = self.criterion(z, y)
         self.log("train_loss", loss)
         return loss
 
@@ -119,10 +122,11 @@ class EMGEncoder(L.LightningModule):
         y = y[:,:-1].clone()
         z = self.encoder.sample(x)
 
-        nce_loss = self.compute_infonce_loss(x, z)
-        kl_loss = compute_kl_loss(z, y)
-        
-        val_loss = nce_loss + self.beta * kl_loss
+        # nce_loss = self.compute_infonce_loss(x, z)
+        # kl_loss = compute_kl_loss(z, y)
+        # val_loss = nce_loss + self.beta * kl_loss
+        val_loss = self.criterion(z, y)
+
         self.log("val_loss", val_loss)
 
         return val_loss
@@ -141,14 +145,14 @@ class EMGPolicy(L.LightningModule):
 
     def training_step(self, batch, _):
         x, y = batch
-        predictions = self.model(x)
+        predictions = self.model.sample(x)
         loss = self.criterion(predictions, y)
         self.log("train_loss", loss)
         return loss
 
     def validation_step(self, val_batch, _):
         x, y = val_batch
-        predictions = self.model(x)
+        predictions = self.model.sample(x)
         val_loss = self.criterion(predictions, y)
         self.log("val_loss", val_loss)
 
@@ -167,7 +171,7 @@ class EMGAgent:
         emg_obs = torch.tensor(observation['emg_observation'], dtype=torch.float32)
         action = self.policy.sample(emg_obs)
         np_action = action.detach().numpy()
-        # add another dimension to match the action space
+        # add another dimension to match the action space (not used in reach)
         zeros = np.zeros((np_action.shape[0], 1))
         return np.concatenate((np_action, zeros), axis=1)
 

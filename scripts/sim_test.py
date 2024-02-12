@@ -4,9 +4,8 @@ import lightning as L
 from pytorch_lightning.loggers import WandbLogger
 
 from lift.datasets import EMGSLDataset
-from lift.controllers import MLP, EMGPolicy
+from lift.controllers import EMGPolicy, Encoder
 from lift.simulator.simulator import WindowSimulator
-from lift.utils import compute_features
 from configs import BaseConfig
 
 
@@ -23,18 +22,15 @@ def get_dataloaders(observations, actions, train_percentage=0.8, batch_size=32):
 
 
 def train(sim, actions, logger, config):
-    sim_windows = sim(actions)
-    features = compute_features(sim_windows)
+    features = sim(actions)
     train_dataloader, val_dataloader = get_dataloaders(features, actions, batch_size=config.batch_size)
 
     hidden_sizes = [config.encoder.hidden_size for _ in range(config.encoder.n_layers)]
-
-    model = MLP(input_size=config.feature_size,
-                output_size=config.action_size,
-                hidden_sizes=hidden_sizes,
-                dropout=config.dropout,
-                output_activation=None,
-                use_batch_norm=config.use_batch_norm,)
+ 
+    model = Encoder(hidden_size=128,
+                    input_dim=config.feature_size,
+                    output_dim=config.action_size,
+                    hidden_dims=hidden_sizes,)
 
     pl_model = EMGPolicy(lr=config.lr, model=model)
     trainer = L.Trainer(
@@ -57,7 +53,8 @@ def main():
     config = BaseConfig()
 
     data_path = './datasets/MyoArmbandDataset/PreTrainingDataset/Female0/training0/'
-    sim = WindowSimulator(num_actions=6, num_bursts=1, num_channels=8, window_size=200)
+    sim = WindowSimulator(action_size=config.action_size, num_bursts=config.simulator.n_bursts, num_channels=config.n_channels,
+                          window_size=config.window_size, return_features=True)
     sim.fit_params_to_mad_sample(data_path)
 
     logger = WandbLogger(project='lift', tags='sim_testing')
