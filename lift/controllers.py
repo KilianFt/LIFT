@@ -70,7 +70,7 @@ class EMGEncoder(L.LightningModule):
         self.lr = config.lr
         self.beta = config.encoder.beta
 
-        x_dim = config.encoder.x_dim
+        x_dim = config.feature_size
         z_dim = config.action_size
         h_dim = config.encoder.h_dim
         hidden_dims = [config.encoder.hidden_size for _ in range(config.encoder.n_layers)]

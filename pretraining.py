@@ -65,9 +65,9 @@ def train_policy(emg_env, config):
 
     train_dataloader, val_dataloader = get_pretrain_dataloaders(history, config)
 
-    input_size = 32#config.n_channels * config.window_size FIXME
-    action_size = emg_env.action_space.shape[0]
-    hidden_sizes = [config.hidden_size for _ in range(config.n_layers)]
+    # input_size = 32#config.n_channels * config.window_size FIXME
+    # action_size = emg_env.action_space.shape[0]
+    # hidden_sizes = [config.hidden_size for _ in range(config.n_layers)]
     # model = MLP(input_size=input_size, output_size=action_size, hidden_sizes=hidden_sizes, dropout=config.dropout)
     # pl_model = EMGPolicy(lr=config.lr, model=model)
     pl_model = EMGEncoder(config)
