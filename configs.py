@@ -20,7 +20,7 @@ class BaseConfig(BaseModel):
 
     dropout: float = .1
     batch_size: int = 128
-    epochs: int = 100
+    epochs: int = 20
     lr: float = 1e-4
     gradient_clip_val: float = 0.1
     noise: float = 0.001

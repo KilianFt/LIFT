@@ -3,6 +3,7 @@ import numpy as np
 import torch
 from torch import nn
 import torch.nn.functional as F
+import torch.distributions as torch_dist
 
 class MLP(nn.Module):
     def __init__(self, input_size, output_size, hidden_sizes, use_batch_norm=False, dropout=0.1,
@@ -35,19 +36,27 @@ class MLP(nn.Module):
     
 class Encoder(nn.Module):
     """Output a categorical distribution"""
-    def __init__(self, input_dim, output_dim, hidden_dims, tau=0.5):
+    def __init__(self, input_dim, output_dim, hidden_size, hidden_dims, tau=0.5):
         super().__init__()
-        self.mlp = MLP(input_dim, output_dim, hidden_dims, dropout=0., activation=nn.SiLU, output_activation=None)
-        self.tau = tau
+        self._mlp = MLP(input_dim, hidden_size, hidden_dims, dropout=0., activation=nn.SiLU, output_activation=None)
+        self._mu = nn.Linear(hidden_size, output_dim)
+        self._logstd = nn.Linear(hidden_size, output_dim)
+        self._min_logstd = -20.0
+        self._max_logstd = 2.0
+        self.tau_ = tau
     
     def forward(self, x):
-        p = torch.softmax(self.mlp(x), dim=-1)
-        return p
+        z = self._mlp(x)
+        mu = self._mu(z)
+        log_std = self._logstd(z)
+        clipped_logstd = log_std.clip(self._min_logstd, self._max_logstd)
+        return mu, clipped_logstd
     
     def sample(self, x):
-        p = self.forward(x)
-        # output normal dist
-        z = F.gumbel_softmax(torch.log(p + 1e-6), tau=self.tau, hard=True)
+        mu, log_std = self.forward(x)
+        std = torch.exp(log_std)
+        dist = torch_dist.Normal(mu, std)
+        z = dist.rsample()
         return z
 
 
@@ -76,10 +85,10 @@ class EMGEncoder(L.LightningModule):
         hidden_dims = [config.encoder.hidden_size for _ in range(config.encoder.n_layers)]
         tau = config.encoder.tau
 
-        self.encoder = Encoder(x_dim, z_dim, hidden_dims, tau=tau)
+        self.encoder = Encoder(x_dim, z_dim, h_dim, hidden_dims, tau=tau)
         self.critic_x = MLP(x_dim, h_dim, hidden_dims, dropout=0., activation=nn.SiLU, output_activation=None)
         self.critic_z = MLP(z_dim, h_dim, hidden_dims, dropout=0., activation=nn.SiLU, output_activation=None)
-        # TODO add kl divergence loss
+
 
     def compute_infonce_loss(self, x, z):
         h_x = self.critic_x(x)
@@ -129,8 +138,6 @@ class EMGPolicy(L.LightningModule):
         self.lr = lr
         self.model = model
         self.criterion = nn.MSELoss()
-        # self.criterion = NCELoss()
-        # TODO add kl divergence loss
 
     def training_step(self, batch, _):
         x, y = batch
@@ -158,7 +165,7 @@ class EMGAgent:
 
     def sample_action(self, observation) -> float:
         emg_obs = torch.tensor(observation['emg_observation'], dtype=torch.float32)
-        action = self.policy(emg_obs)
+        action = self.policy.sample(emg_obs)
         np_action = action.detach().numpy()
         # add another dimension to match the action space
         zeros = np.zeros((np_action.shape[0], 1))
