@@ -4,7 +4,7 @@ from typing import List
 class EncoderConfig(BaseModel):
     h_dim: int = 128
     tau: float = 0.5
-    beta: float = 1.0
+    beta: float = 0.1
     hidden_size: int = 256
     n_layers: int = 4
 
@@ -23,7 +23,7 @@ class BaseConfig(BaseModel):
 
     dropout: float = .1
     batch_size: int = 128
-    epochs: int = 20
+    epochs: int = 200
     lr: float = 1e-4
     gradient_clip_val: float = 0.5
     noise: float = 1e-6
