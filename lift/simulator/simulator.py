@@ -38,10 +38,20 @@ class FakeSimulator:
 
 class WindowSimulator:
     """Assume equal burst durations, only tune ranges and biases"""
-    def __init__(self, action_size=3, num_bursts=3, num_channels=8, window_size=200, noise=0.1,
-                 recording_strength=0.5, num_features=4, return_features=False):
+    def __init__(
+            self, 
+            action_size=3, 
+            num_bursts=3, 
+            num_channels=8, 
+            window_size=200, 
+            noise=0.1,
+            recording_strength=0.5,
+            num_features=4, 
+            return_features=False,
+        ):
         # times 2 cause 1 action per direction of dof
         self.return_features = return_features
+        self.action_size = action_size
         self.num_actions = action_size * 2
         self.num_bursts = num_bursts
         self.num_channels = num_channels
@@ -72,10 +82,12 @@ class WindowSimulator:
         return features
     
     def __call__(self, actions):
+        """Map fetch actions to emg windows"""
         if not isinstance(actions, torch.Tensor):
             actions = torch.tensor(actions, dtype=torch.float32).clone()
+            actions = actions[..., :self.action_size]
 
-        # actions[actions.abs() < .1] = 0
+        # actions[actions.abs() < .1] = 0 # filter low amplitude noise
 
         # find scaling for each action to account for movement strength
         scaling = torch.zeros((actions.shape[0], actions.shape[1]*2))
@@ -122,8 +134,8 @@ class WindowSimulator:
 
         min_len = min([len(emg) for emg in emg_list])
         short_emgs = [emg[:min_len,:] for emg in emg_list]
-        windows_list = [get_windows(s_emg, 200, 200, as_tensor=True) for s_emg in short_emgs]
-        windows = torch.stack(windows_list, dim=0)
+        windows_list = [get_windows(s_emg, 200, 200) for s_emg in short_emgs]
+        windows = torch.from_numpy(np.stack(windows_list, axis=0)).to(torch.float32)
 
         mean_windows = windows.mean(dim=1)
         emg_bias = mean_windows.mean(dim=-1)
@@ -138,6 +150,26 @@ class WindowSimulator:
         self.feature_means = features.mean(dim=0)
         self.feature_stds = features.std(dim=0)
 
+if __name__ == "__main__":
+    from configs import BaseConfig
+    import matplotlib.pyplot as plt
+
+    config = BaseConfig()
+    data_path = '../../datasets/MyoArmbandDataset/PreTrainingDataset/Female0/training0/'
+    sim = WindowSimulator(
+        action_size=config.action_size, 
+        num_bursts=config.simulator.n_bursts, 
+        num_channels=config.n_channels,
+        window_size=config.window_size, 
+        return_features=False
+    )
+    sim.fit_params_to_mad_sample(data_path)
+    single_actions = torch.tensor([[0.5, 0, 0], [-0.5, 0, 0], [0, 0.5, 0], [0, -0.5, 0], [0, 0, 0.5], [0, 0, -0.5]])
+    out = sim(single_actions)
+
+    fig, ax = plt.subplots(1, 1, figsize=(6, 4))
+    ax.plot(out[:, 0].T)
+    plt.show()
 
 # if __name__ == '__main__':
     

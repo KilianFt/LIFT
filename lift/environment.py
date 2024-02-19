@@ -8,23 +8,23 @@ from lift.utils import compute_features
 """TODO: handle different gym versions more cleanly, maybe don't use agent.get_env()"""
 
 class EMGWrapper(gym.Wrapper):
-    def __init__(self, teacher, config, use_features = False):
+    def __init__(self, teacher, emg_simulator):
         super().__init__(teacher.get_env())
         self.teacher = teacher
-        data_path = './datasets/MyoArmbandDataset/PreTrainingDataset/Female0/training0/'
-        self.emg_simulator = WindowSimulator(action_size=config.action_size, num_bursts=config.simulator.n_bursts, num_channels=config.n_channels,
-                              window_size=config.window_size, noise=config.noise, recording_strength = config.simulator.recording_strength, return_features=use_features)
-        self.emg_simulator.fit_params_to_mad_sample(data_path, desired_labels=[1, 2, 3, 4, 5, 6])
+        self.emg_simulator = emg_simulator
 
         # TODO fix this, values can be > 1 and < -1
-        self.observation_space["observation"] = gym.spaces.Box(low=-3, high=3,
-                                                               shape=(config.n_channels, config.window_size),
-                                                               dtype=np.float64)
+        self.observation_space["observation"] = gym.spaces.Box(
+            low=-3, 
+            high=3, 
+            shape=(emg_simulator.num_channels, emg_simulator.window_size),
+            dtype=np.float64
+        )
 
     def _obs_to_emg(self, state):
         ideal_action, _ = self.teacher.predict(state)
         # last action entry not used in fetch env
-        out = self.emg_simulator(ideal_action[:,:3])
+        out = self.emg_simulator(ideal_action)
         return out
 
     def reset(self):
@@ -42,6 +42,7 @@ class EMGWrapper(gym.Wrapper):
         return self.teacher.predict(short_state)
 
 
+"""TODO: unify with EMGWrapper"""
 class UserSimulator(gym.Wrapper):
     """Simulator maps intended action to emg and back to decoded action"""
     def __init__(self, env, decoder, config):
