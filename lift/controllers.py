@@ -33,29 +33,55 @@ class MLP(nn.Module):
     def forward(self, x):
         x = x.flatten(start_dim=1)
         return self.network(x)
-    
-class Encoder(nn.Module):
+
+
+class CategoricalEncoder(nn.Module):
     """Output a categorical distribution"""
-    def __init__(self, input_dim, output_dim, hidden_size, hidden_dims, tau=0.5):
+    def __init__(self, input_dim, output_dim, hidden_dims, tau=0.5):
         super().__init__()
-        self._mlp = MLP(input_dim, hidden_size, hidden_dims, dropout=0., activation=nn.SiLU, output_activation=None)
-        self._mu = nn.Linear(hidden_size, output_dim)
-        self._logstd = nn.Linear(hidden_size, output_dim)
-        self._min_logstd = -20.0
-        self._max_logstd = 2.0
-        self.tau_ = tau
+        self.mlp = MLP(
+            input_dim, 
+            output_dim, 
+            hidden_dims, 
+            dropout=0., 
+            activation=nn.SiLU, 
+            output_activation=None,
+        )
+        self.tau = tau
     
     def forward(self, x):
-        z = self._mlp(x)
-        mu = self._mu(z)
-        log_std = self._logstd(z)
-        clipped_logstd = log_std.clip(self._min_logstd, self._max_logstd)
-        return mu, clipped_logstd
+        p = torch.softmax(self.mlp(x), dim=-1)
+        return p
     
     def sample(self, x):
-        mu, log_std = self.forward(x)
-        std = torch.exp(log_std)
-        dist = torch_dist.Normal(mu, std)
+        p = self.forward(x)
+        z = F.gumbel_softmax(torch.log(p + 1e-6), tau=self.tau, hard=True)
+        return z
+
+
+class GaussianEncoder(nn.Module):
+    """Output a gaussian distribution"""
+    def __init__(self, input_dim, output_dim, hidden_dims):
+        super().__init__()
+        self.mlp = MLP(
+            input_dim, 
+            output_dim * 2, 
+            hidden_dims, 
+            dropout=0., 
+            activation=nn.SiLU, 
+            output_activation=None,
+        )
+        self._min_logstd = -20.0
+        self._max_logstd = 2.0
+    
+    def forward(self, x):
+        mu, ls = torch.chunk(self.mlp(x), 2, dim=-1)
+        sd = torch.exp(ls.clip(self._min_logstd, self._max_logstd))
+        return mu, sd
+    
+    def sample(self, x):
+        mu, sd = self.forward(x)
+        dist = torch_dist.Normal(mu, sd)
         z = dist.rsample()
         return z
 
@@ -74,24 +100,36 @@ def cross_entropy(p, q, eps=1e-6):
 
 
 class EMGEncoder(L.LightningModule):
+    """Encode EMG features using MI maximization"""
     def __init__(self, config):
         super(EMGEncoder, self).__init__()
         self.lr = config.lr
         self.beta = config.encoder.beta
 
-        x_dim = config.feature_size
-        z_dim = config.action_size
-        h_dim = config.encoder.h_dim
+        self.x_dim = config.feature_size
+        self.z_dim = config.action_size
+        self.h_dim = config.encoder.h_dim
         hidden_dims = [config.encoder.hidden_size for _ in range(config.encoder.n_layers)]
-        tau = config.encoder.tau
 
-        self.encoder = Encoder(x_dim, z_dim, h_dim, hidden_dims, tau=tau)
-        self.critic_x = MLP(x_dim, h_dim, hidden_dims, dropout=0., activation=nn.SiLU, output_activation=None)
-        self.critic_z = MLP(z_dim, h_dim, hidden_dims, dropout=0., activation=nn.SiLU, output_activation=None)
-
-        self.criterion = nn.MSELoss()
-
-
+        self.encoder = GaussianEncoder(
+            self.x_dim, self.z_dim, hidden_dims
+        )
+        self.critic_x = MLP(
+            self.x_dim, 
+            self.h_dim, 
+            hidden_dims, 
+            dropout=0., 
+            activation=nn.SiLU, 
+            output_activation=None,
+        )
+        self.critic_z = MLP(
+            self.z_dim, 
+            self.h_dim, 
+            hidden_dims, 
+            dropout=0., 
+            activation=nn.SiLU, 
+            output_activation=None,
+        ) 
 
     def compute_infonce_loss(self, x, z):
         h_x = self.critic_x(x)
@@ -102,32 +140,33 @@ class EMGEncoder(L.LightningModule):
         labels = torch.eye(len(h_x)).to(x.device)
         loss = cross_entropy(labels, p)
         return loss.mean()
-
+    
+    def compute_loss(self, x, z, y):
+        nce_loss = self.compute_infonce_loss(x, z)
+        kl_loss = torch.pow(z - y, 2).mean()
+        loss = self.beta * nce_loss + kl_loss
+        return loss, nce_loss, kl_loss
+    
     def training_step(self, batch, _):
         x, y = batch
-        # remove last element from y
-        y = y[:,:-1].clone()
-        z = self.encoder.sample(x)
+        y = y[:,:self.z_dim].clone() # remove last element from y
 
-        # nce_loss = self.compute_infonce_loss(x, z)
-        # kl_loss = compute_kl_loss(z, y)
-        # loss = nce_loss + self.beta * kl_loss
-        loss = self.criterion(z, y)
+        z = self.encoder.sample(x)
+        loss, _, _ = self.compute_loss(x, z, y)
+        
         self.log("train_loss", loss)
         return loss
 
     def validation_step(self, val_batch, _):
         x, y = val_batch
-        # remove last element from y
-        y = y[:,:-1].clone()
+        y = y[:,:self.z_dim].clone() # remove last element from y
+        
         z = self.encoder.sample(x)
-
-        # nce_loss = self.compute_infonce_loss(x, z)
-        # kl_loss = compute_kl_loss(z, y)
-        # val_loss = nce_loss + self.beta * kl_loss
-        val_loss = self.criterion(z, y)
+        val_loss, nce_loss, kl_loss = self.compute_loss(x, z, y)
 
         self.log("val_loss", val_loss)
+        self.log("val_nce_loss", nce_loss)
+        self.log("val_kl_loss", kl_loss)
 
         return val_loss
 
@@ -169,7 +208,8 @@ class EMGAgent:
 
     def sample_action(self, observation) -> float:
         emg_obs = torch.tensor(observation['emg_observation'], dtype=torch.float32)
-        action = self.policy.sample(emg_obs)
+        with torch.no_grad():
+            action = self.policy.sample(emg_obs)
         np_action = action.detach().numpy()
         # add another dimension to match the action space (not used in reach)
         zeros = np.zeros((np_action.shape[0], 1))
