@@ -2,6 +2,7 @@ from collections import defaultdict
 from pathlib import Path
 import pickle
 
+import torch
 from tqdm import tqdm
 import wandb
 from torch.utils.data import DataLoader, random_split
@@ -73,7 +74,8 @@ def train_policy(emg_env, config):
     pl_model = EMGEncoder(config)
     agent = EMGAgent(policy=pl_model.encoder)
 
-    before_mean_reward = evaluate_emg_policy(emg_env, agent)
+    data = evaluate_emg_policy(emg_env, agent)
+    before_mean_reward = data['rwd'].mean()
     print(f"Pretrain reward before training {before_mean_reward}")
     wandb.log({'pretrain_reward': before_mean_reward})
     
@@ -99,8 +101,11 @@ def train_policy(emg_env, config):
         val_dataloaders=val_dataloader
     )
 
-    mean_reward = evaluate_emg_policy(emg_env, agent)
+    data = evaluate_emg_policy(emg_env, agent)
+    mean_reward = data['rwd'].mean()
     print(f"Pretrain reward {mean_reward}")
     wandb.log({'pretrain_reward': mean_reward})
+
+    torch.save(pl_model.encoder, Path('models') / 'encoder.pt')
 
     return agent
