@@ -39,8 +39,8 @@ def get_pretrain_dataloaders(history, config, train_percentage: float = 0.8):
     val_size = len(dataset) - train_size
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
-    train_dataloader = DataLoader(train_dataset, batch_size=config.batch_size, num_workers=config.num_workers, shuffle=True)
-    val_dataloader = DataLoader(val_dataset, batch_size=config.batch_size, num_workers=config.num_workers)
+    train_dataloader = DataLoader(train_dataset, batch_size=config.batch_size, num_workers=config.num_workers, persistent_workers=True, shuffle=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=config.batch_size, num_workers=config.num_workers, persistent_workers=True)
     return train_dataloader, val_dataloader
 
 

@@ -4,7 +4,7 @@ import lightning as L
 from pytorch_lightning.loggers import WandbLogger
 
 from lift.datasets import EMGSLDataset
-from lift.controllers import EMGPolicy, Encoder
+from lift.controllers import EMGPolicy, GaussianEncoder
 from lift.simulator.simulator import WindowSimulator
 from configs import BaseConfig
 
@@ -27,8 +27,7 @@ def train(sim, actions, logger, config):
 
     hidden_sizes = [config.encoder.hidden_size for _ in range(config.encoder.n_layers)]
  
-    model = Encoder(hidden_size=128,
-                    input_dim=config.feature_size,
+    model = GaussianEncoder(input_dim=config.feature_size,
                     output_dim=config.action_size,
                     hidden_dims=hidden_sizes,)
 
@@ -56,6 +55,7 @@ def main():
     sim = WindowSimulator(action_size=config.action_size, num_bursts=config.simulator.n_bursts, num_channels=config.n_channels,
                           window_size=config.window_size, return_features=True)
     sim.fit_params_to_mad_sample(data_path)
+    sim.fit_normalization_params()
 
     logger = WandbLogger(project='lift', tags='sim_testing')
 
