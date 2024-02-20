@@ -39,38 +39,26 @@ def get_pretrain_dataloaders(history, config, train_percentage: float = 0.8):
     val_size = len(dataset) - train_size
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
-    train_dataloader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True)
-    val_dataloader = DataLoader(val_dataset, batch_size=config.batch_size)
+    train_dataloader = DataLoader(train_dataset, batch_size=config.batch_size, num_workers=config.num_workers, shuffle=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=config.batch_size, num_workers=config.num_workers)
     return train_dataloader, val_dataloader
 
 
 def train_policy(emg_env, config):
     """Supervised pretraining"""
-    hist_name = Path('datasets') / f'rollout_history_features_{(config.n_channels*config.window_size)}_v2.pkl'
-    if hist_name.exists():
-        with open(hist_name, 'rb') as f:
-            history = pickle.load(f)
-    else:
-        history = rollout(emg_env, config)
-        with open(hist_name, 'wb') as f:
-            pickle.dump(history, f)
-
-        # is this still needed when we fit params to MAD sample?
-        # with open(Path('datasets') / f'rollout_params_{(config.n_channels*config.window_size)}.pkl', "wb") as f:
-        #     pickle.dump({
-        #         'weights': emg_env.emg_simulator.weights,
-        #         'biases': emg_env.emg_simulator.biases,
-        #     }, f)
+    # hist_name = Path('datasets') / f'rollout_history_features_{(config.n_channels*config.window_size)}_v11.pkl'
+    # if hist_name.exists():
+    #     with open(hist_name, 'rb') as f:
+    #         history = pickle.load(f)
+    # else:
+    history = rollout(emg_env, config)
+        # with open(hist_name, 'wb') as f:
+        #     pickle.dump(history, f)
     
-    logger = WandbLogger(log_model="all")
+    logger = WandbLogger()#log_model="all")
 
     train_dataloader, val_dataloader = get_pretrain_dataloaders(history, config)
 
-    # input_size = 32#config.n_channels * config.window_size FIXME
-    # action_size = emg_env.action_space.shape[0]
-    # hidden_sizes = [config.hidden_size for _ in range(config.n_layers)]
-    # model = MLP(input_size=input_size, output_size=action_size, hidden_sizes=hidden_sizes, dropout=config.dropout)
-    # pl_model = EMGPolicy(lr=config.lr, model=model)
     pl_model = EMGEncoder(config)
     agent = EMGAgent(policy=pl_model.encoder)
 
@@ -79,13 +67,13 @@ def train_policy(emg_env, config):
     print(f"Pretrain reward before training {before_mean_reward}")
     wandb.log({'pretrain_reward': before_mean_reward})
     
-    checkpoint_callback = ModelCheckpoint(
-        dirpath=Path('models'), 
-        filename='policy_{epoch}_{val_loss:.2f}',
-        save_top_k=config.save_top_k, 
-        every_n_epochs=config.checkpoint_frequency,
-        verbose=True,
-    )
+    # checkpoint_callback = ModelCheckpoint(
+    #     dirpath=Path('models'), 
+    #     filename='policy_{epoch}_{val_loss:.2f}',
+    #     save_top_k=config.save_top_k, 
+    #     every_n_epochs=config.checkpoint_frequency,
+    #     verbose=True,
+    # )
     trainer = L.Trainer(
         max_epochs=config.epochs, 
         log_every_n_steps=1, 
@@ -93,7 +81,7 @@ def train_policy(emg_env, config):
         enable_checkpointing=True, 
         logger=logger, 
         gradient_clip_val=config.gradient_clip_val,
-        callbacks=[checkpoint_callback],
+        # callbacks=[checkpoint_callback],
     )
     trainer.fit(
         model=pl_model, 

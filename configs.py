@@ -14,6 +14,7 @@ class SimulatorConfig(BaseModel):
 
 class BaseConfig(BaseModel):
     seed: int = 100
+    num_workers: int = 7
     teacher_train_timesteps: int = 150_000
     action_size: int = 3 # could be read from env
     feature_size: int = 32 # could be read from env
@@ -26,7 +27,7 @@ class BaseConfig(BaseModel):
     epochs: int = 200
     lr: float = 1e-4
     gradient_clip_val: float = 0.5
-    noise: float = 1e-6
+    noise: float = 1e-15
     use_batch_norm: bool = False
     checkpoint_frequency: int = 1
     save_top_k: int = -1 # set to -1 to save all checkpoints

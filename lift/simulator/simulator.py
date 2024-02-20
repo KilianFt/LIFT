@@ -75,11 +75,18 @@ class WindowSimulator:
     def set_params(self, bias_range, emg_range):
         self.bias_range = bias_range
         self.emg_range = emg_range
-    
+
+
+    def fit_normalization_params(self):
+        actions = torch.rand(10000, 3) * 2 - 1
+        features = self(actions)
+        self.feature_means = features.mean(dim=0)
+        self.feature_stds = features.std(dim=0)
+
+
     def get_norm_features(self, emg_window):
         features = compute_features(emg_window)
-        # return (features - self.feature_means) / self.feature_stds
-        return features
+        return (features - self.feature_means) / self.feature_stds
     
     def __call__(self, actions):
         """Map fetch actions to emg windows"""
@@ -145,10 +152,10 @@ class WindowSimulator:
         self.set_params(emg_bias.unsqueeze(0), emg_limits.unsqueeze(0))
 
         # compute feature means and stds
-        flat_windows = windows.flatten(start_dim=0, end_dim=1)
-        features = compute_features(flat_windows)
-        self.feature_means = features.mean(dim=0)
-        self.feature_stds = features.std(dim=0)
+        # flat_windows = windows.flatten(start_dim=0, end_dim=1)
+        # features = compute_features(flat_windows)
+        # self.feature_means = features.mean(dim=0)
+        # self.feature_stds = features.std(dim=0)
 
 if __name__ == "__main__":
     from configs import BaseConfig

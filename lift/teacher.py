@@ -24,7 +24,8 @@ def maybe_train_teacher(config):
         print('Loading trained teacher')
         teacher = TD3.load(teacher_filename, env=env)
 
-    mean_reward = evaluate_emg_policy(teacher.get_env(), teacher, is_teacher=True)
+    data = evaluate_emg_policy(teacher.get_env(), teacher, is_teacher=True)
+    mean_reward = data['rwd'].mean()
     wandb.log({'teacher_reward': mean_reward})
     print(f"Teacher reward {mean_reward}")
 
