@@ -117,7 +117,7 @@ class WindowSimulator:
         action_biases = torch.einsum('ijk, nj -> ink', biases, action_map)
         action_limits = torch.einsum('ijk, nj -> ink', limits, scaling)
 
-        action_limits.clip_(min=1e-10)#, max=1.)
+        action_limits.clip_(min=1e-3)
 
         window_parts = [None] * self.num_bursts
         for i in range(self.num_bursts):

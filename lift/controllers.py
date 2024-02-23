@@ -61,13 +61,13 @@ class CategoricalEncoder(nn.Module):
 
 class GaussianEncoder(nn.Module):
     """Output a gaussian distribution"""
-    def __init__(self, input_dim, output_dim, hidden_dims):
+    def __init__(self, input_dim, output_dim, hidden_dims, dropout=0.):
         super().__init__()
         self.mlp = MLP(
             input_dim, 
             output_dim * 2, 
             hidden_dims, 
-            dropout=0., 
+            dropout=dropout, 
             activation=nn.SiLU, 
             output_activation=None,
         )
@@ -106,17 +106,17 @@ class EMGEncoder(L.LightningModule):
         self.lr = config.lr
         self.beta = config.encoder.beta
 
-        self.x_dim = config.feature_size
+        x_dim = config.feature_size
         self.z_dim = config.action_size
-        self.h_dim = config.encoder.h_dim
+        h_dim = config.encoder.h_dim
         hidden_dims = [config.encoder.hidden_size for _ in range(config.encoder.n_layers)]
 
         self.encoder = GaussianEncoder(
-            self.x_dim, self.z_dim, hidden_dims
+            x_dim, self.z_dim, hidden_dims, dropout=config.encoder.dropout
         )
         self.critic_x = MLP(
-            self.x_dim, 
-            self.h_dim, 
+            x_dim, 
+            h_dim, 
             hidden_dims, 
             dropout=0., 
             activation=nn.SiLU, 
@@ -124,7 +124,7 @@ class EMGEncoder(L.LightningModule):
         )
         self.critic_z = MLP(
             self.z_dim, 
-            self.h_dim, 
+            h_dim, 
             hidden_dims, 
             dropout=0., 
             activation=nn.SiLU, 

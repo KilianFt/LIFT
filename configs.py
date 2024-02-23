@@ -7,6 +7,7 @@ class EncoderConfig(BaseModel):
     beta: float = 0.1
     hidden_size: int = 256
     n_layers: int = 4
+    dropout: float = 0.
 
 class SimulatorConfig(BaseModel):
     n_bursts: int = 1
@@ -19,16 +20,15 @@ class BaseConfig(BaseModel):
     action_size: int = 3 # could be read from env
     feature_size: int = 32 # could be read from env
     n_channels: int = 8
-    window_size: int = 200 # set to same as action_size to match the dimesions with FakeSim
-    n_steps_rollout: int = 20_000
+    window_size: int = 200
+    n_steps_rollout: int = 5_000
 
-    dropout: float = .1
+    # dropout: float = .1
     batch_size: int = 128
-    epochs: int = 200
+    epochs: int = 15
     lr: float = 1e-4
     gradient_clip_val: float = 0.5
-    noise: float = 1e-15
-    use_batch_norm: bool = False
+    noise: float = 0.0
     checkpoint_frequency: int = 1
     save_top_k: int = -1 # set to -1 to save all checkpoints
 

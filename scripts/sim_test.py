@@ -16,8 +16,8 @@ def get_dataloaders(observations, actions, train_percentage=0.8, batch_size=32):
     val_size = len(dataset) - train_size
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    val_dataloader = DataLoader(val_dataset, batch_size=batch_size)
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, num_workers=7, persistent_workers=True, shuffle=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=7, persistent_workers=True)
     return train_dataloader, val_dataloader
 
 
@@ -29,7 +29,8 @@ def train(sim, actions, logger, config):
  
     model = GaussianEncoder(input_dim=config.feature_size,
                     output_dim=config.action_size,
-                    hidden_dims=hidden_sizes,)
+                    hidden_dims=hidden_sizes,
+                    dropout=config.encoder.dropout,)
 
     pl_model = EMGPolicy(lr=config.lr, model=model)
     trainer = L.Trainer(
@@ -52,30 +53,33 @@ def main():
     config = BaseConfig()
 
     data_path = './datasets/MyoArmbandDataset/PreTrainingDataset/Female0/training0/'
-    sim = WindowSimulator(action_size=config.action_size, num_bursts=config.simulator.n_bursts, num_channels=config.n_channels,
-                          window_size=config.window_size, return_features=True)
+    sim = WindowSimulator(action_size=config.action_size,
+                          num_bursts=config.simulator.n_bursts,
+                          num_channels=config.n_channels,
+                          window_size=config.window_size,
+                          return_features=True)
     sim.fit_params_to_mad_sample(data_path)
     sim.fit_normalization_params()
 
     logger = WandbLogger(project='lift', tags='sim_testing')
 
     # one action at a time
-    single_actions = torch.tensor([[0.5, 0, 0], [-0.5, 0, 0], [0, 0.5, 0], [0, -0.5, 0], [0, 0, 0.5], [0, 0, -0.5]])
-    actions = single_actions.repeat_interleave(repeats=10, dim=0)
-    single_val = train(sim, actions, logger, config)
+    # single_actions = torch.tensor([[0.5, 0, 0], [-0.5, 0, 0], [0, 0.5, 0], [0, -0.5, 0], [0, 0, 0.5], [0, 0, -0.5]])
+    # actions = single_actions.repeat_interleave(repeats=10, dim=0)
+    # single_val = train(sim, actions, logger, config)
 
-    # test on combined simlutaneous actions
-    base_actions = torch.tensor([0.5, -0.5])
-    raw_actions = torch.cartesian_prod(base_actions, base_actions, base_actions)
+    # # test on combined simlutaneous actions
+    # base_actions = torch.tensor([0.5, -0.5])
+    # raw_actions = torch.cartesian_prod(base_actions, base_actions, base_actions)
 
-    actions = raw_actions.repeat_interleave(repeats=10, dim=0)
-    simul_val = train(sim, actions, logger, config)
+    # actions = raw_actions.repeat_interleave(repeats=10, dim=0)
+    # simul_val = train(sim, actions, logger, config)
 
     # test on random actions
-    actions = torch.rand(128, 3) * 2 - 1
+    actions = torch.rand(64_000, 3) * 2 - 1
     random_val = train(sim, actions, logger, config)
 
-    print(f"val loss\nsingle: {single_val[-1]['val_loss']:.4f}\nsimultaneous: {simul_val[-1]['val_loss']:.4f}\nrandom: {random_val[-1]['val_loss']:.4f}")
+    # print(f"val loss\nsingle: {single_val[-1]['val_loss']:.4f}\nsimultaneous: {simul_val[-1]['val_loss']:.4f}\nrandom: {random_val[-1]['val_loss']:.4f}")
 
 
 if __name__ == '__main__':
