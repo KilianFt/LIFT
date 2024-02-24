@@ -2,6 +2,8 @@ import copy
 import numpy as np
 from gymnasium.utils.step_api_compatibility import step_api_compatibility
 
+"""TODO: still not handeling raw gym env correctly since we are assuming we always use teacher.get_env(). 
+raw env does not add batch dimension to observations which makes data aggregation at the end incorrect"""
 def evaluate_policy(env, policy, eval_steps=1000, use_terminate=True, is_sb3=False, save_data=True):
     """
     Args:
