@@ -8,7 +8,7 @@ from configs import BaseConfig
 from lift.environment import EMGWrapper
 from lift.controllers import EMGAgent
 from lift.simulator.simulator import WindowSimulator
-
+from lift.evaluation import evaluate_policy
 
 def main():
     base_path = Path(__file__).resolve().parents[1]
@@ -34,15 +34,11 @@ def main():
     emg_env = EMGWrapper(teacher, sim)
     encoder = torch.load(encoder_filename)
     agent = EMGAgent(policy=encoder)
-
-    observation = emg_env.reset()
-
-    for _ in range(1000):
-        action = agent.sample_action(observation)
-        observation, reward, terminated, info = emg_env.step(action)
-
-        if terminated:
-            observation = emg_env.reset()
+    eval_data = evaluate_policy(
+        emg_env, agent, eval_steps=1000, use_terminate=False
+    )
+    mean_rwd = eval_data["rwd"].mean()
+    print("reward", mean_rwd)
 
     emg_env.close()
 
