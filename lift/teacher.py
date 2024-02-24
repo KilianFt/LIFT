@@ -1,6 +1,4 @@
 import os
-from pathlib import Path
-
 import wandb
 import gymnasium as gym
 from stable_baselines3 import TD3
@@ -9,8 +7,7 @@ from lift.evaluation import evaluate_policy
 
 
 def maybe_train_teacher(config):    
-    base_dir = Path(__file__).resolve().parents[1]
-    teacher_filename = base_dir / 'models' / 'teacher.zip'
+    teacher_filename = config.model_path / 'teacher.zip'
 
     env = gym.make('FetchReachDense-v2', max_episode_steps=100)
 

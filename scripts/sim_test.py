@@ -51,14 +51,14 @@ def main():
     L.seed_everything(100)
 
     config = BaseConfig()
-
-    data_path = './datasets/MyoArmbandDataset/PreTrainingDataset/Female0/training0/'
     sim = WindowSimulator(action_size=config.action_size,
                           num_bursts=config.simulator.n_bursts,
                           num_channels=config.n_channels,
                           window_size=config.window_size,
                           return_features=True)
-    sim.fit_params_to_mad_sample(data_path)
+    sim.fit_params_to_mad_sample(
+        str(config.mad_data_path / "Female0/training0/")
+    )
     sim.fit_normalization_params()
 
     logger = WandbLogger(project='lift', tags='sim_testing')

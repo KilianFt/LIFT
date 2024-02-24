@@ -22,8 +22,9 @@ def main():
         window_size=config.window_size, 
         return_features=True,
     )
-    data_path = './datasets/MyoArmbandDataset/PreTrainingDataset/Female0/training0/' 
-    sim.fit_params_to_mad_sample(data_path)
+    sim.fit_params_to_mad_sample(
+        str(config.mad_data_path / "Female0/training0/")
+    )
     sim.fit_normalization_params()
 
     emg_env = EMGWrapper(teacher, sim)

@@ -14,9 +14,8 @@ from lift.datasets import EMGSLDataset
 from lift.controllers import EMGEncoder, EMGAgent
 from lift.environment import EMGWrapper
 
-def load_teacher():
-    base_dir = Path(__file__).resolve().parents[1]
-    teacher_filename = base_dir / 'models' / 'teacher.zip'
+def load_teacher(config):
+    teacher_filename = config.model_path / 'teacher.zip'
 
     env = gym.make('FetchReachDense-v2')
 
@@ -55,9 +54,8 @@ def main():
 
     logger = WandbLogger(project='lift', tags='align_teacher')
     
-    teacher = load_teacher()
+    teacher = load_teacher(config)
     encoder = EMGEncoder(config)
-    data_path = '../datasets/MyoArmbandDataset/PreTrainingDataset/Female0/training0/'
     sim = WindowSimulator(
         action_size=config.action_size, 
         num_bursts=config.simulator.n_bursts, 
@@ -65,14 +63,16 @@ def main():
         window_size=config.window_size, 
         return_features=True,
     )
-    sim.fit_params_to_mad_sample(data_path)
+    sim.fit_params_to_mad_sample(
+        str(config.mad_data_path / "Female0/training0/")
+    )
 
     # collect teacher data
     num_samples = 5000
     data = evaluate_policy(
         teacher.get_env(), 
         teacher, 
-        n_eval_steps=num_samples,
+        eval_steps=num_samples,
         use_terminate=False,
         is_sb3=True
     )
@@ -84,7 +84,7 @@ def main():
     # test once before train
     test_env = EMGWrapper(teacher, sim)
     agent = EMGAgent(encoder.encoder)
-    eval_data = evaluate_policy(test_env, agent, n_eval_steps=1000, use_terminate=False)
+    eval_data = evaluate_policy(test_env, agent, eval_steps=1000, use_terminate=False)
     mean_rwd = eval_data["rwd"].mean()
     print("encoder reward", mean_rwd)
     if logger is not None:
@@ -95,7 +95,7 @@ def main():
     # test once after train
     test_env = EMGWrapper(teacher, sim)
     agent = EMGAgent(encoder.encoder)
-    eval_data = evaluate_policy(test_env, agent, n_eval_steps=1000, use_terminate=False)
+    eval_data = evaluate_policy(test_env, agent, eval_steps=1000, use_terminate=False)
     mean_rwd = eval_data["rwd"].mean()
     print("encoder reward", mean_rwd)
     if logger is not None:

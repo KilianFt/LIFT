@@ -1,5 +1,8 @@
+from pathlib import Path
 from pydantic import BaseModel
 from typing import List
+
+ROOT_PATH = Path(__file__).resolve().parents[0]
 
 class EncoderConfig(BaseModel):
     h_dim: int = 128
@@ -14,6 +17,11 @@ class SimulatorConfig(BaseModel):
     recording_strength: float = 0.5
 
 class BaseConfig(BaseModel):
+    # path config
+    root_path: str = ROOT_PATH
+    mad_data_path: str = ROOT_PATH / "datasets/MyoArmbandDataset/PreTrainingDataset/"
+    model_path: str = ROOT_PATH / "models"
+
     seed: int = 100
     num_workers: int = 7
     teacher_train_timesteps: int = 150_000
