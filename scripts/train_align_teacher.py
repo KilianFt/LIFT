@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 import gymnasium as gym
 from stable_baselines3 import TD3
+import torch
 from torch.utils.data import DataLoader, random_split
 
 import lightning as L
@@ -100,6 +101,8 @@ def main():
     print("encoder reward", mean_rwd)
     if logger is not None:
         logger.log_metrics({"encoder reward": mean_rwd})
+
+    torch.save(encoder.encoder, config.model_path / 'encoder.pt')
 
 if __name__ == "__main__":
     main()
