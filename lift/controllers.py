@@ -5,6 +5,7 @@ from torch import nn
 import torch.nn.functional as F
 import torch.distributions as torch_dist
 from lift.neural_nets import MLP
+from lift.utils import cross_entropy
 
 class CategoricalEncoder(nn.Module):
     """Output a categorical distribution"""
@@ -55,19 +56,6 @@ class GaussianEncoder(nn.Module):
         dist = torch_dist.Normal(mu, sd)
         z = dist.rsample()
         return z
-
-
-def compute_kl_loss(z, y):
-    # estimate probability of z and y
-    z_prob = F.log_softmax(z, dim=-1)
-    y_prob = F.log_softmax(y, dim=-1)
-    return F.kl_div(z_prob, y_prob, log_target=True, reduction='batchmean')
-
-
-def cross_entropy(p, q, eps=1e-6):
-    logq = torch.log(q + eps)
-    ce = -torch.sum(p * logq, dim=-1)
-    return ce
 
 
 class EMGEncoder(L.LightningModule):
