@@ -11,7 +11,7 @@ import gymnasium as gym
 from stable_baselines3 import TD3
 from lift.environment import UserSimulator
 from lift.controllers import MLP, EMGPolicy, EMGAgent
-from lift.evaluation import evaluate_emg_policy
+from lift.evaluation import evaluate_policy
 from configs import BaseConfig
 
 def load_decoder(decoder_path, env, config):
@@ -56,8 +56,8 @@ def train_user(train_decoder_path, test_decoder_path, save_path, config, eval_ep
         print(f"load from pretrained: {save_path}")
         user = TD3.load(save_path, env=train_env)
     
-    train_mean_rewards = [evaluate_emg_policy(user.get_env(), user, is_teacher=True) for _ in range(eval_eps)]
-    test_mean_rewards = [evaluate_emg_policy(test_env, user, is_teacher=True) for _ in range(eval_eps)]
+    train_mean_rewards = [evaluate_policy(user.get_env(), user, is_sb3=True) for _ in range(eval_eps)]
+    test_mean_rewards = [evaluate_policy(test_env, user, is_sb3=True) for _ in range(eval_eps)]
     
     stats = {
         "train_r_mean": np.mean(train_mean_rewards),

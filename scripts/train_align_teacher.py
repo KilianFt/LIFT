@@ -9,7 +9,7 @@ from pytorch_lightning.loggers import WandbLogger
 
 from configs import BaseConfig
 from lift.simulator.simulator import WindowSimulator
-from lift.evaluation import evaluate_emg_policy
+from lift.evaluation import evaluate_policy
 from lift.datasets import EMGSLDataset
 from lift.controllers import EMGEncoder, EMGAgent
 from lift.environment import EMGWrapper
@@ -69,12 +69,12 @@ def main():
 
     # collect teacher data
     num_samples = 5000
-    data = evaluate_emg_policy(
+    data = evaluate_policy(
         teacher.get_env(), 
         teacher, 
         n_eval_steps=num_samples,
         use_terminate=False,
-        is_teacher=True
+        is_sb3=True
     )
     mean_rwd = data["rwd"].mean()
     print("teacher reward", mean_rwd)
@@ -84,7 +84,7 @@ def main():
     # test once before train
     test_env = EMGWrapper(teacher, sim)
     agent = EMGAgent(encoder.encoder)
-    eval_data = evaluate_emg_policy(test_env, agent, n_eval_steps=1000, use_terminate=False)
+    eval_data = evaluate_policy(test_env, agent, n_eval_steps=1000, use_terminate=False)
     mean_rwd = eval_data["rwd"].mean()
     print("encoder reward", mean_rwd)
     if logger is not None:
@@ -95,7 +95,7 @@ def main():
     # test once after train
     test_env = EMGWrapper(teacher, sim)
     agent = EMGAgent(encoder.encoder)
-    eval_data = evaluate_emg_policy(test_env, agent, n_eval_steps=1000, use_terminate=False)
+    eval_data = evaluate_policy(test_env, agent, n_eval_steps=1000, use_terminate=False)
     mean_rwd = eval_data["rwd"].mean()
     print("encoder reward", mean_rwd)
     if logger is not None:

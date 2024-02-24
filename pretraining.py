@@ -12,7 +12,7 @@ from pytorch_lightning.loggers import WandbLogger
 
 from lift.datasets import EMGSLDataset
 from lift.controllers import MLP, EMGPolicy, EMGAgent, EMGEncoder
-from lift.evaluation import evaluate_emg_policy
+from lift.evaluation import evaluate_policy
 
 
 def rollout(emg_env, config):
@@ -62,7 +62,7 @@ def train_policy(emg_env, config):
     pl_model = EMGEncoder(config)
     agent = EMGAgent(policy=pl_model.encoder)
 
-    data = evaluate_emg_policy(emg_env, agent)
+    data = evaluate_policy(emg_env, agent)
     before_mean_reward = data['rwd'].mean()
     print(f"Pretrain reward before training {before_mean_reward}")
     wandb.log({'pretrain_reward': before_mean_reward})
@@ -89,7 +89,7 @@ def train_policy(emg_env, config):
         val_dataloaders=val_dataloader
     )
 
-    data = evaluate_emg_policy(emg_env, agent)
+    data = evaluate_policy(emg_env, agent)
     mean_reward = data['rwd'].mean()
     print(f"Pretrain reward {mean_reward}")
     wandb.log({'pretrain_reward': mean_reward})

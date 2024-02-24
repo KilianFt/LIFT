@@ -5,7 +5,7 @@ import wandb
 import gymnasium as gym
 from stable_baselines3 import TD3
 
-from lift.evaluation import evaluate_emg_policy
+from lift.evaluation import evaluate_policy
 
 
 def maybe_train_teacher(config):    
@@ -24,7 +24,7 @@ def maybe_train_teacher(config):
         print('Loading trained teacher')
         teacher = TD3.load(teacher_filename, env=env)
 
-    data = evaluate_emg_policy(teacher.get_env(), teacher, is_teacher=True)
+    data = evaluate_policy(teacher.get_env(), teacher, is_sb3=True)
     mean_reward = data['rwd'].mean()
     wandb.log({'teacher_reward': mean_reward})
     print(f"Teacher reward {mean_reward}")
