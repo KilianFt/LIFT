@@ -4,36 +4,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 import torch.distributions as torch_dist
-
-class MLP(nn.Module):
-    def __init__(self, input_size, output_size, hidden_sizes, use_batch_norm=False, dropout=0.1,
-                 activation=nn.ReLU, output_activation=nn.Tanh):
-        super(MLP, self).__init__()
-
-        layers = []
-        layers.append(nn.Linear(input_size, hidden_sizes[0]))
-        layers.append(nn.Dropout(p=dropout))
-        if use_batch_norm:
-            layers.append(nn.BatchNorm1d(hidden_sizes[0]))
-        layers.append(activation(inplace=True))
-
-        for i in range(len(hidden_sizes) - 1):
-            layers.append(nn.Linear(hidden_sizes[i], hidden_sizes[i + 1]))
-            layers.append(nn.Dropout(p=dropout))
-            if use_batch_norm:
-                layers.append(nn.BatchNorm1d(hidden_sizes[i + 1]))
-            layers.append(activation(inplace=True))
-
-        layers.append(nn.Linear(hidden_sizes[-1], output_size))
-        if output_activation is not None:
-            layers.append(output_activation())
-
-        self.network = nn.Sequential(*layers)
-
-    def forward(self, x):
-        x = x.flatten(start_dim=1)
-        return self.network(x)
-
+from lift.neural_nets import MLP
 
 class CategoricalEncoder(nn.Module):
     """Output a categorical distribution"""
