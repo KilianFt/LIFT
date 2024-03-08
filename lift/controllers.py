@@ -162,7 +162,7 @@ class EMGPolicy(L.LightningModule):
 
 
 class EMGAgent:
-    def __init__(self, policy):
+    def __init__(self, policy: GaussianEncoder):
         self.policy = policy
 
     def sample_action(self, observation) -> float:

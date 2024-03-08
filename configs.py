@@ -20,16 +20,17 @@ class BaseConfig(BaseModel):
     # path config
     root_path: str = ROOT_PATH
     mad_data_path: str = ROOT_PATH / "datasets/MyoArmbandDataset/PreTrainingDataset/"
-    model_path: str = ROOT_PATH / "models"
+    models_path: str = ROOT_PATH / "models"
 
-    seed: int = 100
+    seed: int = 101
     num_workers: int = 7
     teacher_train_timesteps: int = 150_000
     action_size: int = 3 # could be read from env
     feature_size: int = 32 # could be read from env
     n_channels: int = 8
     window_size: int = 200
-    n_steps_rollout: int = 5_000
+    n_steps_rollout: int = 10_000
+    random_pertube_prob: int = 0.5
 
     # dropout: float = .1
     batch_size: int = 128

@@ -15,7 +15,7 @@ def main():
     teacher_filename = base_path / 'models' / 'teacher.zip'
     encoder_filename = base_path / 'models' / 'encoder.pt'
 
-    raw_env = gym.make('FetchReachDense-v2', max_episode_steps=100, render_mode="human")
+    raw_env = gym.make('FetchReachDense-v2', render_mode="human")
     teacher = TD3.load(teacher_filename, env=raw_env)
 
     config = BaseConfig()

@@ -1,10 +1,7 @@
-import os
-from pathlib import Path
-import gymnasium as gym
-from stable_baselines3 import TD3
 import torch
 from torch.utils.data import DataLoader, random_split
 
+import wandb
 import lightning as L
 from pytorch_lightning.loggers import WandbLogger
 
@@ -13,16 +10,9 @@ from lift.simulator.simulator import WindowSimulator
 from lift.evaluation import evaluate_policy
 from lift.datasets import EMGSLDataset
 from lift.controllers import EMGEncoder, EMGAgent
-from lift.environment import EMGWrapper
+from lift.environment import EMGWrapper, rollout
+from lift.teacher import load_teacher
 
-def load_teacher(config):
-    teacher_filename = config.model_path / 'teacher.zip'
-
-    env = gym.make('FetchReachDense-v2')
-
-    print('Loading trained teacher')
-    teacher = TD3.load(teacher_filename, env=env)    
-    return teacher
 
 def get_dataloaders(observations, actions, train_percentage=0.8, batch_size=32):
     dataset = EMGSLDataset(obs=observations, action=actions)
@@ -34,6 +24,7 @@ def get_dataloaders(observations, actions, train_percentage=0.8, batch_size=32):
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     val_dataloader = DataLoader(val_dataset, batch_size=batch_size)
     return train_dataloader, val_dataloader
+
 
 def train(sim, actions, model, logger, config):
     features = sim(actions)
@@ -49,13 +40,26 @@ def train(sim, actions, model, logger, config):
     )
     trainer.fit(model=model, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader)
 
+
+def validate(teacher, sim, encoder, logger):
+    test_env = EMGWrapper(teacher, sim)
+    agent = EMGAgent(encoder.encoder)
+    rewards = evaluate_policy(test_env, agent, eval_steps=1000, use_terminate=False)
+    mean_rwd = rewards.mean()
+    print("encoder reward", mean_rwd)
+    if logger is not None:
+        logger.log_metrics({"encoder reward": mean_rwd})
+    return mean_rwd
+
+
 def main():
     config = BaseConfig()
     L.seed_everything(config.seed)
-
-    logger = WandbLogger(project='lift', tags='align_teacher')
+    _ = wandb.init(project='lift', tags='align_teacher')
+    logger = WandbLogger()
     
     teacher = load_teacher(config)
+
     encoder = EMGEncoder(config)
     sim = WindowSimulator(
         action_size=config.action_size, 
@@ -65,17 +69,16 @@ def main():
         return_features=True,
     )
     sim.fit_params_to_mad_sample(
-        str(config.mad_data_path / "Female0/training0/")
+        (config.mad_data_path / "Female0"/ "training0").as_posix()
     )
 
     # collect teacher data
-    num_samples = 5000
-    data = evaluate_policy(
+    data = rollout(
         teacher.get_env(), 
-        teacher, 
-        eval_steps=num_samples,
-        use_terminate=False,
-        is_sb3=True
+        teacher,
+        n_steps=config.n_steps_rollout,
+        is_sb3=True,
+        random_pertube_prob=config.random_pertube_prob,
     )
     mean_rwd = data["rwd"].mean()
     print("teacher reward", mean_rwd)
@@ -83,26 +86,13 @@ def main():
         logger.log_metrics({"teacher reward": mean_rwd})
 
     # test once before train
-    test_env = EMGWrapper(teacher, sim)
-    agent = EMGAgent(encoder.encoder)
-    eval_data = evaluate_policy(test_env, agent, eval_steps=1000, use_terminate=False)
-    mean_rwd = eval_data["rwd"].mean()
-    print("encoder reward", mean_rwd)
-    if logger is not None:
-        logger.log_metrics({"encoder reward": mean_rwd})
+    validate(teacher, sim, encoder, logger)
 
     train(sim, data["act"], encoder, logger, config)
     
-    # test once after train
-    test_env = EMGWrapper(teacher, sim)
-    agent = EMGAgent(encoder.encoder)
-    eval_data = evaluate_policy(test_env, agent, eval_steps=1000, use_terminate=False)
-    mean_rwd = eval_data["rwd"].mean()
-    print("encoder reward", mean_rwd)
-    if logger is not None:
-        logger.log_metrics({"encoder reward": mean_rwd})
+    validate(teacher, sim, encoder, logger)
 
-    torch.save(encoder.encoder, config.model_path / 'encoder.pt')
+    torch.save(encoder.encoder, config.models_path / 'encoder.pt')
 
 if __name__ == "__main__":
     main()

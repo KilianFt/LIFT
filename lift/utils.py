@@ -16,3 +16,9 @@ def cross_entropy(p, q, eps=1e-6):
     logq = torch.log(q + eps)
     ce = -torch.sum(p * logq, dim=-1)
     return ce
+
+def obs_wrapper(obs):
+    if isinstance(obs, tuple):
+        return obs[0]
+    else:
+        return obs
