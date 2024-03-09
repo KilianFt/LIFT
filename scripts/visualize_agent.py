@@ -34,11 +34,10 @@ def main():
     emg_env = EMGWrapper(teacher, sim)
     encoder = torch.load(encoder_filename)
     agent = EMGAgent(policy=encoder)
-    eval_data = evaluate_policy(
+    rewards = evaluate_policy(
         emg_env, agent, eval_steps=1000, use_terminate=False
     )
-    mean_rwd = eval_data["rwd"].mean()
-    print("reward", mean_rwd)
+    print("reward", rewards.mean())
 
     emg_env.close()
 

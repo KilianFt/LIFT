@@ -9,7 +9,20 @@ from lift.simulator.simulator import WindowSimulator
 from lift.utils import obs_wrapper
 
 
-def rollout(env, model, n_steps=1000, is_sb3=False, random_pertube_prob=0.0):
+def rollout(env, model, n_steps=1000, is_sb3=False, random_pertube_prob=0.0, action_noise=0.0):
+    """
+    Args:
+        env: gym environment
+        policy: policy class with sample_action method or predict method if stable_baseline3 policy.
+        n_steps: number of steps.
+        is_sb3: whether the policy is stable_baseline3 policy.
+        save_data: whether to save trajectory data. If no, only save reward and other fields will be empty.
+        random_pertube_prob: probability of random pertubation of teacher actions. If pertub, then random action in range [-1, 1] is taken.
+        action_noise: noise added to teacher actions.
+
+    Returns:
+        data: dict with fields [obs, act, rwd, next_obs, done]. dict observations will be concatenated for each key.
+    """
     data = {"obs": [], "act": [], "rwd": [], "next_obs": [], "done": []}
 
     observation = obs_wrapper(env.reset())
@@ -27,6 +40,8 @@ def rollout(env, model, n_steps=1000, is_sb3=False, random_pertube_prob=0.0):
         else:
             action = model.sample_action(observation)
         
+        action += np.random.randn(*action.shape) * action_noise
+
         next_observation, reward, terminated, info = step_api_compatibility(
             env.step(action), 
             output_truncation_bool=False

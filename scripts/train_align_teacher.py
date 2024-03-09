@@ -14,21 +14,24 @@ from lift.environment import EMGWrapper, rollout
 from lift.teacher import load_teacher
 
 
-def get_dataloaders(observations, actions, train_percentage=0.8, batch_size=32):
+def get_dataloaders(observations, actions, train_percentage=0.8, batch_size=32, num_workers=4):
     dataset = EMGSLDataset(obs=observations, action=actions)
 
     train_size = int(train_percentage * len(dataset))
     val_size = len(dataset) - train_size
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    val_dataloader = DataLoader(val_dataset, batch_size=batch_size)
+    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, num_workers=num_workers, persistent_workers=True, shuffle=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, num_workers=num_workers, persistent_workers=True)
     return train_dataloader, val_dataloader
 
 
 def train(sim, actions, model, logger, config):
     features = sim(actions)
-    train_dataloader, val_dataloader = get_dataloaders(features, actions, batch_size=config.batch_size)
+    train_dataloader, val_dataloader = get_dataloaders(features,
+                                                       actions,
+                                                       batch_size=config.batch_size,
+                                                       num_workers=config.num_workers)
 
     trainer = L.Trainer(
         max_epochs=config.epochs, 
@@ -55,8 +58,11 @@ def validate(teacher, sim, encoder, logger):
 def main():
     config = BaseConfig()
     L.seed_everything(config.seed)
-    _ = wandb.init(project='lift', tags='align_teacher')
-    logger = WandbLogger()
+    if config.use_wandb:
+        _ = wandb.init(project='lift', tags='align_teacher')
+        logger = WandbLogger()
+    else:
+        logger = None
     
     teacher = load_teacher(config)
 
@@ -79,6 +85,7 @@ def main():
         n_steps=config.n_steps_rollout,
         is_sb3=True,
         random_pertube_prob=config.random_pertube_prob,
+        action_noise=config.action_noise,
     )
     mean_rwd = data["rwd"].mean()
     print("teacher reward", mean_rwd)

@@ -22,6 +22,8 @@ class BaseConfig(BaseModel):
     mad_data_path: str = ROOT_PATH / "datasets/MyoArmbandDataset/PreTrainingDataset/"
     models_path: str = ROOT_PATH / "models"
 
+    use_wandb: bool = False
+
     seed: int = 101
     num_workers: int = 7
     teacher_train_timesteps: int = 150_000
@@ -31,9 +33,11 @@ class BaseConfig(BaseModel):
     window_size: int = 200
     n_steps_rollout: int = 10_000
     random_pertube_prob: int = 0.5
+    action_noise: float = 0.1
 
     # dropout: float = .1
     batch_size: int = 128
+    num_workers: int = 7
     epochs: int = 15
     lr: float = 1e-4
     gradient_clip_val: float = 0.5
