@@ -103,7 +103,7 @@ class EMGEncoder(L.LightningModule):
     def compute_loss(self, x, z, y):
         nce_loss = self.compute_infonce_loss(x, z)
         kl_loss = torch.pow(z - y, 2).mean()
-        loss = self.beta * nce_loss + kl_loss
+        loss = self.beta * nce_loss + (1 - self.beta) * kl_loss
         return loss, nce_loss, kl_loss
     
     def training_step(self, batch, _):

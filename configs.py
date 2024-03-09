@@ -21,6 +21,7 @@ class BaseConfig(BaseModel):
     root_path: str = ROOT_PATH
     mad_data_path: str = ROOT_PATH / "datasets/MyoArmbandDataset/PreTrainingDataset/"
     models_path: str = ROOT_PATH / "models"
+    rollout_data_path: str = ROOT_PATH / "datasets" / "rollouts"
 
     use_wandb: bool = False
 

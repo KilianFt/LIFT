@@ -1,3 +1,4 @@
+import pickle
 import torch
 from torch.utils.data import DataLoader, random_split
 
@@ -12,7 +13,7 @@ from lift.datasets import EMGSLDataset
 from lift.controllers import EMGEncoder, EMGAgent
 from lift.environment import EMGWrapper, rollout
 from lift.teacher import load_teacher
-
+from lift.utils import hash_config
 
 def get_dataloaders(observations, actions, train_percentage=0.8, batch_size=32, num_workers=4):
     dataset = EMGSLDataset(obs=observations, action=actions)
@@ -52,7 +53,28 @@ def validate(teacher, sim, encoder, logger):
     print("encoder reward", mean_rwd)
     if logger is not None:
         logger.log_metrics({"encoder reward": mean_rwd})
-    return mean_rwd
+    return rewards
+
+
+def maybe_rollout(teacher, config):
+    config_hash = hash_config(config)
+    rollout_file = config.rollout_data_path / f"data_{config_hash}.pkl"
+    if rollout_file.exists():
+        with open(rollout_file, "rb") as f:
+            data = pickle.load(f)
+    else:
+        data = rollout(
+            teacher.get_env(), 
+            teacher,
+            n_steps=config.n_steps_rollout,
+            is_sb3=True,
+            random_pertube_prob=config.random_pertube_prob,
+            action_noise=config.action_noise,
+        )
+        rollout_file.parent.mkdir(exist_ok=True, parents=True)
+        with open(rollout_file, "wb") as f:
+            pickle.dump(data, f)
+    return data
 
 
 def main():
@@ -79,14 +101,7 @@ def main():
     )
 
     # collect teacher data
-    data = rollout(
-        teacher.get_env(), 
-        teacher,
-        n_steps=config.n_steps_rollout,
-        is_sb3=True,
-        random_pertube_prob=config.random_pertube_prob,
-        action_noise=config.action_noise,
-    )
+    data = maybe_rollout(teacher, config)
     mean_rwd = data["rwd"].mean()
     print("teacher reward", mean_rwd)
     if logger is not None:
@@ -100,6 +115,7 @@ def main():
     validate(teacher, sim, encoder, logger)
 
     torch.save(encoder.encoder, config.models_path / 'encoder.pt')
+
 
 if __name__ == "__main__":
     main()

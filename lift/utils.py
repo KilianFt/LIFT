@@ -1,3 +1,6 @@
+import pickle
+import hashlib
+
 import torch
 import numpy as np
 from libemg.feature_extractor import FeatureExtractor
@@ -22,3 +25,10 @@ def obs_wrapper(obs):
         return obs[0]
     else:
         return obs
+    
+
+def hash_config(config):
+    print("Hashing hyperparameters")
+    values = sorted(config, key=lambda x: x[0])
+    config_hash = hashlib.sha256(pickle.dumps(values)).hexdigest()
+    return config_hash
