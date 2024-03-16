@@ -1,18 +1,22 @@
 import os
-from pathlib import Path
-
-import wandb
 import gymnasium as gym
 from stable_baselines3 import TD3
 
-from lift.evaluation import evaluate_emg_policy
+
+def load_teacher(config):
+    teacher_filename = config.models_path / 'teacher.zip'
+
+    env = gym.make('FetchReachDense-v2')
+
+    print('Loading trained teacher')
+    teacher = TD3.load(teacher_filename, env=env)    
+    return teacher
 
 
 def maybe_train_teacher(config):    
-    base_dir = Path(__file__).resolve().parents[1]
-    teacher_filename = base_dir / 'models' / 'teacher.zip'
+    teacher_filename = config.models_path / 'teacher.zip'
 
-    env = gym.make('FetchReachDense-v2', max_episode_steps=100)
+    env = gym.make('FetchReachDense-v2')
 
     if not os.path.exists(teacher_filename):
         print('Training teacher')
@@ -23,10 +27,6 @@ def maybe_train_teacher(config):
     else:
         print('Loading trained teacher')
         teacher = TD3.load(teacher_filename, env=env)
-
-    mean_reward = evaluate_emg_policy(teacher.get_env(), teacher, is_teacher=True)
-    wandb.log({'teacher_reward': mean_reward})
-    print(f"Teacher reward {mean_reward}")
 
     return teacher
 

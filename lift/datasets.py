@@ -4,7 +4,7 @@ import re
 import numpy as np
 import torch
 from torch.utils.data import Dataset
-
+from libemg.utils import get_windows
 
 class EMGSLDataset(Dataset):
     def __init__(self, obs, action):
@@ -18,7 +18,7 @@ class EMGSLDataset(Dataset):
         return self.obs[idx], self.action[idx]
 
 
-def get_mad_sample(data_path, emg_min = -128, emg_max = 127, filter_labels = False):
+def get_mad_sample(data_path, emg_min = -128, emg_max = 127, desired_labels = None):
     emg = []
     labels = []
     for data_file in os.listdir(data_path):
@@ -43,8 +43,8 @@ def get_mad_sample(data_path, emg_min = -128, emg_max = 127, filter_labels = Fal
             emg.append(norm_emg)
             labels.append(label)
 
-    if filter_labels:
-        desired_labels = [0, 1, 2, 3, 4]
+    if desired_labels is not None:
+        # desired_labels = [0, 1, 2, 3, 4]
 
         filtered_labels = []
         filtered_emg = []
@@ -57,3 +57,27 @@ def get_mad_sample(data_path, emg_min = -128, emg_max = 127, filter_labels = Fal
         labels = filtered_labels
 
     return emg, labels
+
+
+def get_mad_windows(data_path, window_size, window_increment, emg_min = -128, emg_max = 127, desired_labels = None):
+    emg_list, label_list = get_mad_sample(data_path, emg_min, emg_max, desired_labels)
+
+    sort_id = np.argsort(label_list)
+    label_list = [label_list[i] for i in sort_id]
+    emg_list = [emg_list[i] for i in sort_id]
+    # I used labels 0 - 4 (including 4), where label 0 is rest
+
+    min_len = min([len(emg) for emg in emg_list])
+    short_emgs = [emg[:min_len,:] for emg in emg_list]
+    windows_list = [torch.from_numpy(get_windows(s_emg, window_size, window_increment)) for s_emg in short_emgs]
+    windows = torch.stack(windows_list, dim=0)
+    flat_windows = windows.flatten(start_dim=0, end_dim=1)
+
+    n_repeats = windows_list[0].shape[0]
+    short_labels = torch.tensor([np.repeat(label, repeats=n_repeats) for label in label_list])
+    labels = short_labels.flatten(start_dim=0, end_dim=1)
+
+    # actions = F.one_hot(short_labels, num_classes=5).float()
+    # flat_actions = actions.flatten(start_dim=0, end_dim=1)
+    return flat_windows, labels
+
