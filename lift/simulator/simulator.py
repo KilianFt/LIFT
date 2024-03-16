@@ -92,9 +92,13 @@ class WindowSimulator:
         """Map fetch actions to emg windows"""
         if not isinstance(actions, torch.Tensor):
             actions = torch.tensor(actions, dtype=torch.float32).clone()
+
+        assert len(actions.shape) > 1, "Actions should be a 2D tensor"
+        if actions.shape[-1] > self.action_size:
+            # TODO maybe warn when automatically truncating?
             actions = actions[..., :self.action_size]
 
-        # actions[actions.abs() < .1] = 0 # filter low amplitude noise
+        actions[actions.abs() < .1] = 0 # filter low amplitude noise
 
         # find scaling for each action to account for movement strength
         scaling = torch.zeros((actions.shape[0], actions.shape[1]*2))
@@ -179,40 +183,3 @@ if __name__ == "__main__":
     fig, ax = plt.subplots(1, 1, figsize=(6, 4))
     ax.plot(out[:, 0].T)
     plt.show()
-
-# if __name__ == '__main__':
-    
-#     # test fixed burst window sim
-#     num_actions = 5
-#     num_channels = 8
-#     window_size = 200
-#     simulator = WindowSimulator(
-#         num_actions=num_actions,
-#         num_channels=num_channels,
-#         window_size=window_size,
-#     )
-
-#     batch_size = 32
-#     actions = F.one_hot(
-#         torch.randint(0, num_actions, size=(batch_size,)), 
-#         num_classes=simulator.num_actions
-#     ).float()
-#     sim_emg_window = simulator(actions)
-
-#     assert list(sim_emg_window.shape) == [batch_size, num_channels, window_size]
-
-#     with open('../../datasets/emg_recording.pkl', 'rb') as f:
-#         data = pickle.load(f)
-#     real_emg  = data[0]["user_signals"]
-#     real_emg_window = real_emg[50,0,:]
-
-#     fig, axs = plt.subplots(1, 2, figsize=(10, 4))
-#     axs[0].plot(sim_emg_window)
-#     axs[0].set_title('Simulated EMG')
-#     # axs[0].legend()
-
-#     axs[1].plot(real_emg_window)
-#     axs[1].set_title('Real EMG')
-
-#     plt.tight_layout()
-#     plt.show()

@@ -82,12 +82,20 @@ class EMGWrapper(gym.Wrapper):
         self.emg_simulator = emg_simulator
 
         # TODO fix this, values can be > 1 and < -1
-        self.observation_space["observation"] = gym.spaces.Box(
-            low=-3, 
-            high=3, 
-            shape=(emg_simulator.num_channels, emg_simulator.window_size),
-            dtype=np.float64
-        )
+        if emg_simulator.return_features:
+            self.observation_space["observation"] = gym.spaces.Box(
+                low=-10,
+                high=10,
+                shape=(emg_simulator.num_channels * 4,),
+                dtype=np.float64
+            )
+        else:
+            self.observation_space["observation"] = gym.spaces.Box(
+                low=-3, 
+                high=3, 
+                shape=(emg_simulator.num_channels, emg_simulator.window_size),
+                dtype=np.float64
+            )
 
     def _obs_to_emg(self, state):
         ideal_action, _ = self.teacher.predict(state)
