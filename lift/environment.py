@@ -1,6 +1,12 @@
 import copy
 from tqdm import tqdm
 
+import torch
+from tensordict import TensorDictBase
+from torchrl.envs import Transform
+from torchrl.data import UnboundedContinuousTensorSpec
+from torchrl.envs.transforms.transforms import _apply_to_composite
+
 import gymnasium as gym
 import numpy as np
 from gymnasium.utils.step_api_compatibility import step_api_compatibility
@@ -9,6 +15,50 @@ from lift.simulator.simulator import WindowSimulator
 from lift.utils import obs_wrapper
 
 
+class EMGTransform(Transform):
+    """ Transforms observation to simulated EMG
+
+    Args:
+        teacher: teacher model that predicts "ideal" action
+        simulator: create EMG signals for each action
+        in_keys: keys that are considered for transform
+        out_keys: keys after transform
+
+    Example:
+        >>> env = apply_env_transforms(gym_env_maker('FetchReachDense-v2'))
+        >>> teacher = SAC(...)
+        >>> sim = WindowSimulator(...)
+        >>> t_emg = EMGTransform(teacher, sim, in_keys=["observation"], out_keys=["emg"])
+        >>> env.append_transform(t_emg)
+        >>> check_env_specs(env)
+        >>> data = env.reset()
+        >>> print(data["emg])
+
+    """
+    def __init__(self, teacher, simulator: WindowSimulator, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.teacher = teacher
+        self.simulator = simulator
+
+    def _apply_transform(self, obs: torch.Tensor) -> None:
+        with torch.no_grad():
+            loc, scale, action = self.teacher.model.policy(obs)
+        emg = self.simulator(action.view(1,-1))
+        return emg.squeeze()
+    
+    def _reset(self, tensordict: TensorDictBase, tensordict_reset: TensorDictBase) -> TensorDictBase:
+        return self._call(tensordict_reset)
+    
+    @_apply_to_composite
+    def transform_observation_spec(self, observation_spec):
+        return UnboundedContinuousTensorSpec(
+            shape=(32,),
+            dtype=torch.float32,
+            device=observation_spec.device,
+        )
+
+
+""" TODO remove this when torch rl is integrated """
 def rollout(env, model, n_steps=1000, is_sb3=False, random_pertube_prob=0.0, action_noise=0.0):
     """
     Args:
@@ -139,3 +189,38 @@ class UserSimulator(gym.Wrapper):
         decoded_action = self.decoder.sample_action({'emg_observation': emg})[-1]
         state, reward, terminated, truncated, info = self.env.step(decoded_action)
         return state, reward, terminated, truncated, info
+
+
+if __name__ == '__main__':
+    from torchrl.envs.utils import check_env_specs, step_mdp
+    from configs import TeacherConfig, BaseConfig
+    from lift.rl.utils import gym_env_maker, apply_env_transforms
+    from lift.rl.sac import SAC
+
+    config = BaseConfig()
+    teach_config = TeacherConfig()
+
+    env = apply_env_transforms(gym_env_maker('FetchReachDense-v2'))
+
+    teacher = SAC(teach_config, env, env)
+    
+    sim = WindowSimulator(
+        action_size=config.action_size, 
+        num_bursts=config.simulator.n_bursts, 
+        num_channels=config.n_channels,
+        window_size=config.window_size, 
+        return_features=True,
+    )
+
+    t_emg = EMGTransform(teacher, sim, in_keys=["observation"], out_keys=["emg"])
+    env.append_transform(t_emg)
+
+    check_env_specs(env)
+
+    data = env.reset()
+    for _ in range(5):
+        action = teacher.model.policy(data)
+        data = env.step(action)
+        data = step_mdp(data, keep_other=True)
+        print(data['step_count'])
+        print(data['emg'].shape)
