@@ -57,11 +57,14 @@ class AlgoBase(ABC):
         # Define Actor Network
         in_keys = ["observation"]
         action_spec = self.train_env.action_spec
+        obs_size = self.train_env.observation_spec["observation"].shape[-1]
+        action_size = action_spec.shape[-1]
         if self.train_env.batch_size:
             action_spec = action_spec[(0,) * len(self.train_env.batch_size)]
         actor_net_kwargs = {
+            "in_features": obs_size,
             "num_cells": self.config.hidden_sizes,
-            "out_features": 2 * action_spec.shape[-1],
+            "out_features": 2 * action_size,
             "activation_class": get_activation(self.config.activation),
         }
 
@@ -101,6 +104,7 @@ class AlgoBase(ABC):
 
         # Define Critic Network
         qvalue_net_kwargs = {
+            "in_features": (obs_size + action_size),
             "num_cells": self.config.hidden_sizes,
             "out_features": 1,
             "activation_class": get_activation(self.config.activation),

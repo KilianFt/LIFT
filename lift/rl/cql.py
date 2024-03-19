@@ -112,17 +112,13 @@ class CQL(AlgoBase):
                 log_metrics(logger, metrics_to_log, train_step)
 
 
-
-def main():
-    train_env = apply_env_transforms(gym_env_maker('FetchReachDense-v2'))
-    eval_env = apply_env_transforms(gym_env_maker('FetchReachDense-v2'))
-
-    # logger = 
+if __name__ == '__main__':
     # TODO create own config
     config = TeacherConfig()
+
+    train_env = apply_env_transforms(gym_env_maker(config.env_name))
+    eval_env = apply_env_transforms(gym_env_maker(config.env_name))
+
+    # logger = 
     model = CQL(config, train_env, eval_env)
     model.train()
-
-
-if __name__ == '__main__':
-    main()

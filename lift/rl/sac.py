@@ -1,119 +1,18 @@
 import time
 import tqdm
 import torch
-import torch.nn as nn
 from tensordict import TensorDict
-from tensordict.nn import InteractionType, TensorDictModule
-from tensordict.nn.distributions import NormalParamExtractor
 from torchrl.envs.utils import ExplorationType, set_exploration_type
-from torchrl.modules import MLP, ProbabilisticActor, ValueOperator
-from torchrl.modules.distributions import TanhNormal
-from torchrl.objectives import SoftUpdate
 from torchrl.objectives.sac import SACLoss
 
+from lift.rl.algo import AlgoBase
 from lift.rl.utils import (
-    make_replay_buffer, 
-    get_activation, 
     make_collector, 
     log_metrics,
 )
 
-class SAC:
+class SAC(AlgoBase):
     """Soft actor critic trainer"""
-    def __init__(self, config, train_env, eval_env):
-        self.config = config
-        self.train_env = train_env
-        self.eval_env = eval_env
-        self.device = torch.device(config.device)
-
-        self.replay_buffer = make_replay_buffer(
-            batch_size=self.config.batch_size,
-            prioritize=self.config.prioritize,
-            buffer_size=self.config.replay_buffer_size,
-            scratch_dir=self.config.scratch_dir,
-            device="cpu",
-        )
-        self._init_policy()
-        self._init_loss_module()
-        self._init_optimizer()
-    
-    """TODO: remove lazy layer from first layer. manually specify input dims"""
-    def _init_policy(self):
-        # Define Actor Network
-        in_keys = ["observation"]
-        action_spec = self.train_env.action_spec
-        if self.train_env.batch_size:
-            action_spec = action_spec[(0,) * len(self.train_env.batch_size)]
-        actor_net_kwargs = {
-            "num_cells": self.config.hidden_sizes,
-            "out_features": 2 * action_spec.shape[-1],
-            "activation_class": get_activation(self.config.activation),
-        }
-
-        actor_net = MLP(**actor_net_kwargs)
-
-        dist_class = TanhNormal
-        dist_kwargs = {
-            "min": action_spec.space.low,
-            "max": action_spec.space.high,
-            "tanh_loc": False,
-        }
-
-        actor_extractor = NormalParamExtractor(
-            scale_mapping=f"biased_softplus_{self.config.default_policy_scale}",
-            scale_lb=self.config.scale_lb,
-        )
-        actor_net = nn.Sequential(actor_net, actor_extractor)
-
-        in_keys_actor = in_keys
-        actor_module = TensorDictModule(
-            actor_net,
-            in_keys=in_keys_actor,
-            out_keys=[
-                "loc",
-                "scale",
-            ],
-        )
-        actor = ProbabilisticActor(
-            spec=action_spec,
-            in_keys=["loc", "scale"],
-            module=actor_module,
-            distribution_class=dist_class,
-            distribution_kwargs=dist_kwargs,
-            default_interaction_type=InteractionType.RANDOM,
-            return_log_prob=False,
-        )
-
-        # Define Critic Network
-        qvalue_net_kwargs = {
-            "num_cells": self.config.hidden_sizes,
-            "out_features": 1,
-            "activation_class": get_activation(self.config.activation),
-        }
-
-        qvalue_net = MLP(
-            **qvalue_net_kwargs,
-        )
-
-        qvalue = ValueOperator(
-            in_keys=["action"] + in_keys,
-            module=qvalue_net,
-        )
-
-        self.model = nn.ModuleDict({
-            "policy": actor,
-            "value": qvalue
-        }).to(self.device)
-
-        # init input dims
-        with torch.no_grad(), set_exploration_type(ExplorationType.RANDOM):
-            td = self.train_env.reset()
-            td = td.to(self.device)
-            for net in self.model.values():
-                net(td)
-        del td
-        self.train_env.close()
-    
     def _init_loss_module(self):
         # Create SAC loss
         self.loss_module = SACLoss(
@@ -124,34 +23,6 @@ class SAC:
             delay_actor=False,
             delay_qvalue=True,
             alpha_init=self.config.alpha_init,
-        )
-        self.loss_module.make_value_estimator(gamma=self.config.gamma)
-
-        # Define Target Network Updater
-        self.target_net_updater = SoftUpdate(
-            self.loss_module, eps=self.config.target_update_polyak
-        )
-    
-    def _init_optimizer(self):
-        critic_params = list(self.loss_module.qvalue_network_params.flatten_keys().values())
-        actor_params = list(self.loss_module.actor_network_params.flatten_keys().values())
-        
-        self.optimizers = {}
-        self.optimizers["actor"] = torch.optim.Adam(
-            actor_params,
-            lr=self.config.lr,
-            weight_decay=self.config.weight_decay,
-            eps=self.config.adam_eps,
-        )
-        self.optimizers["critic"] = torch.optim.Adam(
-            critic_params,
-            lr=self.config.lr,
-            weight_decay=self.config.weight_decay,
-            eps=self.config.adam_eps,
-        )
-        self.optimizers["alpha"] = torch.optim.Adam(
-            [self.loss_module.log_alpha],
-            lr=3.0e-4,
         )
     
     def train(self, logger=None):
@@ -284,13 +155,6 @@ class SAC:
         end_time = time.time()
         execution_time = end_time - start_time
         print(f"Training took {execution_time:.2f} seconds to finish")
-    
-    def save(self, path):
-        torch.save(self.model.state_dict(), path)
-
-    def load(self, path):
-        state_dict = torch.load(path)
-        self.model.load_state_dict(state_dict)
 
 
 if __name__ == '__main__':
