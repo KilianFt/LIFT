@@ -4,6 +4,7 @@ lightning_logs/
 wandb/
 models/
 figures/
+tmp/
 test.ipynb
 .DS_STORE
 
