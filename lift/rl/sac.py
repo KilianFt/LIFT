@@ -291,3 +291,19 @@ class SAC:
     def load(self, path):
         state_dict = torch.load(path)
         self.model.load_state_dict(state_dict)
+
+
+if __name__ == '__main__':
+    from lift.rl.utils import gym_env_maker, apply_env_transforms
+    from configs import TeacherConfig
+
+    train_env = apply_env_transforms(gym_env_maker('FetchReachDense-v2'))
+    eval_env = apply_env_transforms(gym_env_maker('FetchReachDense-v2'))
+
+    config = TeacherConfig()
+    model = SAC(config, train_env, eval_env)
+
+    logger = None
+    model.train(logger=logger)
+
+    model.save('sac.pth')
