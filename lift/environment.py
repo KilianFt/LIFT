@@ -2,10 +2,11 @@ import copy
 from tqdm import tqdm
 
 import torch
-from tensordict import TensorDictBase
+from tensordict import TensorDict, TensorDictBase
 from torchrl.envs import Transform
 from torchrl.data import UnboundedContinuousTensorSpec
 from torchrl.envs.transforms.transforms import _apply_to_composite
+from torchrl.envs.utils import check_env_specs, step_mdp
 
 import gymnasium as gym
 import numpy as np
@@ -59,11 +60,12 @@ class EMGTransform(Transform):
 
 
 """ TODO remove this when torch rl is integrated """
-def rollout(env, model, n_steps=1000, is_sb3=False, random_pertube_prob=0.0, action_noise=0.0):
+def rollout(env, agent, obs_agg_fun, n_steps=1000, is_sb3=False, random_pertube_prob=0.0, action_noise=0.0):
     """
     Args:
         env: gym environment
-        policy: policy class with sample_action method or predict method if stable_baseline3 policy.
+        agent: agent class with sample_action method or predict method if stable_baseline3 policy.
+        obs_agg_func: observation aggregration function
         n_steps: number of steps.
         is_sb3: whether the policy is stable_baseline3 policy.
         save_data: whether to save trajectory data. If no, only save reward and other fields will be empty.
@@ -79,16 +81,14 @@ def rollout(env, model, n_steps=1000, is_sb3=False, random_pertube_prob=0.0, act
     
     bar = tqdm(range(n_steps), desc="Rollout", unit="item")
     while len(data["rwd"]) < n_steps:
-        is_pertub = False
-        if is_sb3:
-            action, _ = model.predict(observation)
+        with torch.no_grad():
+            action = agent.sample_action(obs_agg_fun(observation)).numpy()
 
-            # randomely pertube teacher actions to obtain broader diversity in data
-            if np.random.rand() < random_pertube_prob:
-                action = np.random.rand(*action.shape) * 2 - 1
-                is_pertub = True
-        else:
-            action = model.sample_action(observation)
+        # randomely pertube teacher actions to obtain broader diversity in data
+        is_pertub = False
+        if np.random.rand() < random_pertube_prob:
+            action = np.random.rand(*action.shape) * 2 - 1
+            is_pertub = True
         
         action += np.random.randn(*action.shape) * action_noise
 
@@ -117,17 +117,18 @@ def rollout(env, model, n_steps=1000, is_sb3=False, random_pertube_prob=0.0, act
     else:
         data["obs"] = np.concatenate(data["obs"], axis=0)
         data["next_obs"] = np.concatenate(data["next_obs"], axis=0)
-    data["act"] = np.concatenate(data["act"], axis=0)
+    data["act"] = np.stack(data["act"])
     data["rwd"] = np.stack(data["rwd"])
-    data["done"] = np.concatenate(data["done"], axis=0)
+    data["done"] = np.stack(data["done"])
     return data
 
 
 """TODO: handle different gym versions more cleanly, maybe don't use agent.get_env()"""
 
 class EMGWrapper(gym.Wrapper):
-    def __init__(self, teacher, emg_simulator):
-        super().__init__(teacher.get_env())
+    def __init__(self, teacher, env, obs_agg_func, emg_simulator):
+        super().__init__(env)
+        self.obs_agg_func = obs_agg_func
         self.teacher = teacher
         self.emg_simulator = emg_simulator
 
@@ -148,18 +149,23 @@ class EMGWrapper(gym.Wrapper):
             )
 
     def _obs_to_emg(self, state):
-        ideal_action, _ = self.teacher.predict(state)
+        with torch.no_grad():
+            ideal_action = self.teacher.sample_action(self.obs_agg_func(state)).view(1, -1)
+            
         # last action entry not used in fetch env
         out = self.emg_simulator(ideal_action)
         return out
 
     def reset(self):
-        state = self.env.reset()
+        state = obs_wrapper(self.env.reset())
         state["emg_observation"] = self._obs_to_emg(state)
         return state
 
     def step(self, action):
-        state, reward, terminated, info = self.env.step(action)
+        state, reward, terminated, info = step_api_compatibility(
+            self.env.step(action.flatten()), 
+            output_truncation_bool=False
+        )
         state["emg_observation"] = self._obs_to_emg(state)
         return state, reward, terminated, info
     
@@ -224,3 +230,12 @@ if __name__ == '__main__':
         data = step_mdp(data, keep_other=True)
         print(data['step_count'])
         print(data['emg'].shape)
+    
+    # test rollout
+    env = gym.make('FetchReachDense-v2')
+    def obs_agg_fun(obs):
+        return torch.from_numpy(
+            np.concatenate([obs["observation"], obs["desired_goal"], obs["achieved_goal"]])
+        ).to(torch.float32)
+    data = rollout(env, teacher, obs_agg_fun, n_steps=10, random_pertube_prob=0.5)
+    print(data)

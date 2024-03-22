@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 import torch
 import torch.nn as nn
 
+from tensordict import TensorDict
 from tensordict.nn import InteractionType, TensorDictModule
 from tensordict.nn.distributions import NormalParamExtractor
 from torchrl.envs.utils import ExplorationType, set_exploration_type
@@ -45,7 +46,18 @@ class AlgoBase(ABC):
     @abstractmethod
     def train(self, logger=None):
         pass
+    
+    def sample_action(self, obs, sample_mean=False):
+        if not isinstance(obs, TensorDict):
+            obs = TensorDict({"observation": obs})
 
+        act_dist = self.model.policy.get_dist(obs)
+        if sample_mean:
+            act = act_dist.loc
+        else:
+            act = act_dist.sample()
+        return act
+    
     def _post_init_loss_module(self):
         self.loss_module.make_value_estimator(gamma=self.config.gamma)
 

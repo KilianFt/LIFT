@@ -1,4 +1,6 @@
 import pickle
+import gymnasium as gym
+import numpy as np
 import torch
 from torch.utils.data import DataLoader, random_split
 
@@ -45,8 +47,8 @@ def train(sim, actions, model, logger, config):
     trainer.fit(model=model, train_dataloaders=train_dataloader, val_dataloaders=val_dataloader)
 
 
-def validate(teacher, sim, encoder, logger):
-    test_env = EMGWrapper(teacher, sim)
+def validate(teacher, env, obs_agg_fun, sim, encoder, logger):
+    test_env = EMGWrapper(teacher, env, obs_agg_fun, sim)
     agent = EMGAgent(encoder.encoder)
     rewards = evaluate_policy(test_env, agent, eval_steps=1000, use_terminate=False)
     mean_rwd = rewards.mean()
@@ -56,7 +58,7 @@ def validate(teacher, sim, encoder, logger):
     return rewards
 
 
-def maybe_rollout(teacher, config):
+def maybe_rollout(teacher, env, obs_agg_fun, config):
     config_hash = hash_config(config)
     rollout_file = config.rollout_data_path / f"data_{config_hash}.pkl"
     if rollout_file.exists():
@@ -64,10 +66,10 @@ def maybe_rollout(teacher, config):
             data = pickle.load(f)
     else:
         data = rollout(
-            teacher.get_env(), 
+            env, 
             teacher,
+            obs_agg_fun,
             n_steps=config.n_steps_rollout,
-            is_sb3=True,
             random_pertube_prob=config.random_pertube_prob,
             action_noise=config.action_noise,
         )
@@ -87,8 +89,6 @@ def main():
         logger = None
     
     teacher = load_teacher(config)
-
-    encoder = EMGEncoder(config)
     sim = WindowSimulator(
         action_size=config.action_size, 
         num_bursts=config.simulator.n_bursts, 
@@ -100,19 +100,26 @@ def main():
         (config.mad_data_path / "Female0"/ "training0").as_posix()
     )
 
+    env = gym.make('FetchReachDense-v2')
+    def obs_agg_fun(obs):
+        return torch.from_numpy(
+            np.concatenate([obs["observation"], obs["desired_goal"], obs["achieved_goal"]])
+        ).to(torch.float32)
+    
     # collect teacher data
-    data = maybe_rollout(teacher, config)
+    data = maybe_rollout(teacher, env, obs_agg_fun, config)
     mean_rwd = data["rwd"].mean()
     print("teacher reward", mean_rwd)
     if logger is not None:
         logger.log_metrics({"teacher reward": mean_rwd})
 
     # test once before train
-    validate(teacher, sim, encoder, logger)
+    encoder = EMGEncoder(config)
+    validate(teacher, env, obs_agg_fun, sim, encoder, logger)
 
     train(sim, data["act"], encoder, logger, config)
     
-    validate(teacher, sim, encoder, logger)
+    validate(teacher, env, obs_agg_fun, sim, encoder, logger)
 
     torch.save(encoder.encoder, config.models_path / 'encoder.pt')
 
