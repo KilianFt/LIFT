@@ -50,14 +50,17 @@ class TeacherConfig(BaseModel):
 class EncoderConfig(BaseModel):
     h_dim: int = 128
     tau: float = 0.5
-    beta: float = 0.1
+    beta_1: float = 1. # mi weight
+    beta_2: float = 1. # kl weight
     hidden_size: int = 256
     n_layers: int = 4
     dropout: float = 0.
 
+
 class SimulatorConfig(BaseModel):
     n_bursts: int = 1
     recording_strength: float = 0.5
+
 
 class BaseConfig(BaseModel):
     # path config
@@ -81,8 +84,10 @@ class BaseConfig(BaseModel):
     n_steps_rollout: int = 10_000
     random_pertube_prob: int = 0.5
     action_noise: float = 0.1
-
+    
+    # supervised learning config
     # dropout: float = .1
+    train_ratio: float = 0.8
     batch_size: int = 128
     num_workers: int = 7
     epochs: int = 15

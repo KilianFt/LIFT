@@ -3,20 +3,49 @@ import re
 
 import numpy as np
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader, random_split
 from libemg.utils import get_windows
 
 class EMGSLDataset(Dataset):
-    def __init__(self, obs, action):
-        self.obs = torch.tensor(np.stack(obs), dtype=torch.float32)
-        self.action = torch.tensor(np.stack(action), dtype=torch.float32)
+    """Supervised learning dataset"""
+    def __init__(self, data_dict):
+        assert isinstance(data_dict, dict), "data must be a dictionary"
+        self.data_keys = list(data_dict.keys())
+        self.data = {
+            k: v if isinstance(v, torch.Tensor) 
+            else torch.from_numpy(v).to(torch.float32) 
+            for k, v in data_dict.items()
+        }
 
     def __len__(self):
-        return len(self.obs)
+        return len(self.data[self.data_keys[0]])
     
     def __getitem__(self, idx):
-        return self.obs[idx], self.action[idx]
+        out = {k: v[idx] for k, v in self.data.items()}
+        return out
 
+
+def get_dataloaders(data_dict, train_ratio=0.8, batch_size=32, num_workers=4):
+    dataset = EMGSLDataset(data_dict)
+
+    train_size = int(train_ratio * len(dataset))
+    val_size = len(dataset) - train_size
+    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+
+    train_dataloader = DataLoader(
+        train_dataset, 
+        batch_size=batch_size, 
+        num_workers=num_workers, 
+        persistent_workers=True, 
+        shuffle=True,
+    )
+    val_dataloader = DataLoader(
+        val_dataset, 
+        batch_size=batch_size, 
+        num_workers=num_workers, 
+        persistent_workers=True,
+    )
+    return train_dataloader, val_dataloader
 
 def get_mad_sample(data_path, emg_min = -128, emg_max = 127, desired_labels = None):
     emg = []
