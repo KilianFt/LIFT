@@ -6,6 +6,7 @@ def rollout(
         env, 
         agent, 
         n_steps=1000, 
+        sample_mean=False,
         terminate_on_done=True, 
         reset_on_done=False, 
         random_pertube_prob=0.0, 
@@ -31,25 +32,21 @@ def rollout(
     
     bar = tqdm(range(n_steps), desc="Rollout", unit="item")
     while len(data["rwd"]) < n_steps:
-        act = agent.sample_action(obs)
+        act = agent.sample_action(obs, sample_mean=sample_mean)
 
         # randomely pertube teacher actions to obtain broader diversity in data
-        is_pertub = False
+        act_env = act + np.random.randn(*act.shape) * action_noise
         if np.random.rand() < random_pertube_prob:
-            act = np.random.rand(*act.shape) * 2 - 1
-            is_pertub = True
-        
-        act += np.random.randn(*act.shape) * action_noise
+            act_env = np.random.rand(*act.shape) * 2 - 1
 
-        next_obs, rwd, done, info = env.step(act)
+        next_obs, rwd, done, info = env.step(act_env)
 
-        if not is_pertub:
-            data["rwd"].append(float(rwd))
-            data["obs"].append(copy.deepcopy(obs))
-            data["act"].append(act)
-            data["next_obs"].append(copy.deepcopy(next_obs))
-            data["done"].append(bool(done))
-            bar.update(1)
+        data["rwd"].append(float(rwd))
+        data["obs"].append(copy.deepcopy(obs))
+        data["act"].append(act)
+        data["next_obs"].append(copy.deepcopy(next_obs))
+        data["done"].append(bool(done))
+        bar.update(1)
         
         obs = next_obs
 

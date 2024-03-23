@@ -10,7 +10,7 @@ from lift.environments.rollout import rollout
 from lift.controllers import EMGAgent
 from lift.teacher import load_teacher
 
-def visualize_teacher(config: BaseConfig):
+def visualize_teacher(config: BaseConfig, sample_mean=False):
     teacher = load_teacher(config)
     
     env = NpGymEnv(
@@ -23,12 +23,13 @@ def visualize_teacher(config: BaseConfig):
         env,
         teacher,
         n_steps=1000,
+        sample_mean=sample_mean,
         terminate_on_done=False,
         reset_on_done=True
     )
     print(f"mean reward: {data['rwd'].mean():.4f}")
 
-def visualize_encoder(config: BaseConfig):
+def visualize_encoder(config: BaseConfig, sample_mean=False):
     teacher = load_teacher(config)
 
     env = NpGymEnv(
@@ -57,6 +58,7 @@ def visualize_encoder(config: BaseConfig):
         env,
         agent,
         n_steps=1000,
+        sample_mean=sample_mean,
         terminate_on_done=False,
         reset_on_done=True
     )
@@ -67,15 +69,17 @@ def main(args):
     config = BaseConfig()
 
     if args["agent"] == "teacher":
-        visualize_teacher(config)
+        visualize_teacher(config, args["sample_mean"])
     elif args["agent"] == "encoder":
-        visualize_encoder(config)
+        visualize_encoder(config, args["sample_mean"])
     else:
         raise ValueError("agent to visualize not recognized")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    bool_ = lambda x: x.lower() == "true"
     parser.add_argument("--agent", type=str, choices=["teacher", "encoder"])
+    parser.add_argument("--sample_mean", type=bool_, default=False)
     args = vars(parser.parse_args())
 
     main(args)
