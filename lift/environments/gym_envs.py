@@ -5,7 +5,7 @@ from gymnasium.utils.step_api_compatibility import step_api_compatibility
 
 class NpGymEnv(gym.Wrapper):
     """Numpy gym environment wrapper for version compatibility"""
-    def __init__(self, env_name, cat_obs=True, cat_keys=None):
+    def __init__(self, env_name, cat_obs=True, cat_keys=None, **kwargs):
         """
         Args:
             env_name (str): gym environment name used for gym.make()
@@ -14,7 +14,7 @@ class NpGymEnv(gym.Wrapper):
                 observations will be concatenated in the order of supplied keys.
                 if none and cat_obs=True, use sorted dict keys.
         """
-        super().__init__(gym.make(env_name))
+        super().__init__(gym.make(env_name, **kwargs))
         self.observation_space = self.env.observation_space
         self.action_space = self.env.action_space
 

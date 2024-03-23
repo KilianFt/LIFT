@@ -49,14 +49,18 @@ class AlgoBase(ABC):
     
     def sample_action(self, obs, sample_mean=False):
         if not isinstance(obs, TensorDict):
+            obs = obs["observation"]
+            if not isinstance(obs, torch.Tensor):
+                obs = torch.from_numpy(obs).to(torch.float32)
             obs = TensorDict({"observation": obs})
 
-        act_dist = self.model.policy.get_dist(obs)
+        with torch.no_grad():
+            act_dist = self.model.policy.get_dist(obs)
         if sample_mean:
             act = act_dist.loc
         else:
             act = act_dist.sample()
-        return act
+        return act.numpy()
     
     def _post_init_loss_module(self):
         self.loss_module.make_value_estimator(gamma=self.config.gamma)

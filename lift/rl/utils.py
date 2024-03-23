@@ -17,10 +17,14 @@ from torchrl.collectors import SyncDataCollector
 from torchrl.data import TensorDictPrioritizedReplayBuffer, TensorDictReplayBuffer
 from torchrl.data.replay_buffers.storages import LazyMemmapStorage
 
-def gym_env_maker(env_name, cat_obs_keys="all", device="cpu"):
+def gym_env_maker(env_name, cat_obs=True, cat_keys=None, device="cpu"):
     with set_gym_backend("gymnasium"):
         raw_env = GymEnv(env_name, device=device)
-        in_keys = raw_env.observation_spec.keys() if cat_obs_keys == "all" else cat_obs_keys
+        in_keys = ["observation"]
+        if cat_obs:
+            in_keys = raw_env.observation_spec.keys() if cat_keys is None else cat_keys
+            assert all([k in raw_env.observation_spec.keys() for k in in_keys])
+        
         env = TransformedEnv(
             raw_env, 
             CatTensors(in_keys=in_keys, out_key="observation")
@@ -41,14 +45,15 @@ def apply_env_transforms(env, max_episode_steps=1000):
 
 def parallel_env_maker(
         env_name, 
-        cat_obs_keys="all", 
+        cat_obs=True, 
+        cat_keys=None,
         env_per_collector=1,
         max_eps_steps=1000,
         device="cpu",
     ):
     parallel_env = ParallelEnv(
         env_per_collector,
-        EnvCreator(lambda : gym_env_maker(env_name, cat_obs_keys, device)),
+        EnvCreator(lambda : gym_env_maker(env_name, cat_obs, cat_keys, device)),
         serial_for_single=True,
     )
     parallel_env = apply_env_transforms(parallel_env, max_eps_steps)

@@ -7,6 +7,8 @@ ROOT_PATH = Path(__file__).resolve().parents[0]
 class TeacherConfig(BaseModel):
     # env
     env_name: str = "FetchReachDense-v2"
+    env_cat_obs: bool = True # whether to concat observations
+    env_cat_keys: list | None = None # auto sort obs keys
     max_eps_steps: int = 100
     seed: int = 0
 
