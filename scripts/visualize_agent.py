@@ -25,7 +25,7 @@ def visualize_teacher(config: BaseConfig, sample_mean=False):
         n_steps=1000,
         sample_mean=sample_mean,
         terminate_on_done=False,
-        reset_on_done=True
+        reset_on_done=True,
     )
     print(f"mean reward: {data['rwd'].mean():.4f}")
 
@@ -48,21 +48,21 @@ def visualize_encoder(config: BaseConfig, sample_mean=False):
     sim.fit_params_to_mad_sample(
         str(config.mad_data_path / "Female0/training0/")
     )
-    env = EMGEnv(env, teacher, sim)
+    emg_env = EMGEnv(env, teacher, sim)
     
     # load encoder
     encoder = torch.load(config.models_path / "encoder.pt")
     agent = EMGAgent(policy=encoder)
     
     data = rollout(
-        env,
+        emg_env,
         agent,
         n_steps=1000,
         sample_mean=sample_mean,
         terminate_on_done=False,
         reset_on_done=True
     )
-    print(f"mean reward: {data['rwd'].mean():.4f}")
+    print(f"mean reward: {data['rwd'].mean():.4f}") 
 
 def main(args):
     print(f"\nvisualizing {args['agent']}")
