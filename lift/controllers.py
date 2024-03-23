@@ -100,6 +100,7 @@ class EMGEncoder(L.LightningModule):
         loss = cross_entropy(labels, p)
         return loss.mean()
     
+    """TODO: get sac teacher log probs from sac loss module, compute kl here"""
     def compute_loss(self, x, z, y):
         nce_loss = self.compute_infonce_loss(x, z)
         kl_loss = torch.pow(z - y, 2).mean()
@@ -169,10 +170,9 @@ class EMGAgent:
         emg_obs = torch.tensor(observation['emg_observation'], dtype=torch.float32)
         with torch.no_grad():
             action = self.policy.sample(emg_obs)
-        np_action = action.detach().numpy()
-        # add another dimension to match the action space (not used in reach)
-        zeros = np.zeros((np_action.shape[0], 1))
-        return np.concatenate((np_action, zeros), axis=1)
+            """TODO: properly address action dimension mismatch in emg env"""
+            action = F.pad(action, (0, 1)) # pad zero to last action dimension
+        return action.detach().numpy()
 
     def update(self):
         pass
