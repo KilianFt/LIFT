@@ -20,13 +20,6 @@ def cross_entropy(p, q, eps=1e-6):
     ce = -torch.sum(p * logq, dim=-1)
     return ce
 
-def obs_wrapper(obs):
-    if isinstance(obs, tuple):
-        return obs[0]
-    else:
-        return obs
-    
-
 def hash_config(config):
     print("Hashing hyperparameters")
     values = sorted(config, key=lambda x: x[0])
