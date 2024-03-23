@@ -4,9 +4,11 @@ from torch import nn
 import torch.nn.functional as F
 import torch.distributions as torch_dist
 from tensordict import TensorDict
+from torchrl.modules.distributions import TanhNormal
 
 from configs import BaseConfig
 from lift.neural_nets import MLP
+from lift.environments.gym_envs import NpGymEnv
 from lift.rl.sac import SAC
 from lift.utils import cross_entropy
 
@@ -63,22 +65,22 @@ class GaussianEncoder(nn.Module):
 
 class EMGEncoder(L.LightningModule):
     """Encode EMG features using MI maximization"""
-    def __init__(self, config: BaseConfig, teacher: SAC):
+    def __init__(self, config: BaseConfig, env: NpGymEnv, teacher: SAC):
         super(EMGEncoder, self).__init__()
         self.lr = config.lr
         self.beta_1 = config.encoder.beta_1
         self.beta_2 = config.encoder.beta_2
 
-        x_dim = config.feature_size
+        self.x_dim = config.feature_size
         self.a_dim = config.action_size
         h_dim = config.encoder.h_dim
         hidden_dims = [config.encoder.hidden_size for _ in range(config.encoder.n_layers)]
 
         self.encoder = GaussianEncoder(
-            x_dim, self.a_dim, hidden_dims, dropout=config.encoder.dropout
+            self.x_dim, self.a_dim, hidden_dims, dropout=config.encoder.dropout
         )
         self.critic_x = MLP(
-            x_dim, 
+            self.x_dim, 
             h_dim, 
             hidden_dims, 
             dropout=0., 
@@ -95,6 +97,23 @@ class EMGEncoder(L.LightningModule):
         ) 
         self.teacher = teacher.model.policy
 
+        self.act_max = torch.from_numpy(env.action_space.high[..., :-1]).to(torch.float32)
+        self.act_min = torch.from_numpy(env.action_space.low[..., :-1]).to(torch.float32)
+    
+    def get_z_dist(self, x):
+        mu, sd = self.encoder.forward(x)
+        z_dist = TanhNormal(mu, sd, min=self.act_min, max=self.act_max)
+        return z_dist
+    
+    def sample_action(self, x, sample_mean=False):
+        act_dist = self.get_z_dist(x)
+
+        if sample_mean:
+            act = act_dist.mode
+        else:
+            act = act_dist.rsample()
+        return act
+    
     def compute_infonce_loss(self, x, z):
         h_x = self.critic_x(x)
         h_z = self.critic_z(z)
@@ -111,10 +130,15 @@ class EMGEncoder(L.LightningModule):
             "observation": o,
             "action": F.pad(z, (0, 1), value=0),
         })
-        log_prior = self.teacher.log_prob(teacher_inputs)
-        ent = z_dist.entropy().sum(-1)
+        # log_prior = self.teacher.log_prob(teacher_inputs)
+        # ent = z_dist.entropy().sum(-1)
+        # kl = -(log_prior + ent).mean()
+
+        with torch.no_grad():
+            teacher_dist = self.teacher.get_dist(teacher_inputs)
+            a_teacher = teacher_dist.mode[..., :-1]
         
-        kl = -(log_prior + ent).mean()
+        kl = torch.pow(z - a_teacher, 2).mean()
         return kl
     
     def compute_loss(self, x, o, a, z_dist):
@@ -130,8 +154,7 @@ class EMGEncoder(L.LightningModule):
         a = batch["act"]
         a = a[:,:self.a_dim].clone() # remove last element from y
 
-        z_mu, z_sd = self.encoder.forward(x)
-        z_dist = torch_dist.Normal(z_mu, z_sd)
+        z_dist = self.get_z_dist(x)
         loss, _, _ = self.compute_loss(x, o, a, z_dist)
         
         self.log("train_loss", loss.data.item())
@@ -143,11 +166,10 @@ class EMGEncoder(L.LightningModule):
         a = batch["act"]
         a = a[:,:self.a_dim].clone() # remove last element from y
         
-        z_mu, z_sd = self.encoder.forward(x)
-        z_dist = torch_dist.Normal(z_mu, z_sd)
+        z_dist = self.get_z_dist(x)
         loss, nce_loss, kl_loss = self.compute_loss(x, o, a, z_dist)
 
-        mae = torch.abs(z_dist.mean - a).mean()
+        mae = torch.abs(z_dist.mode - a).mean()
 
         self.log("val_loss", loss.data.item())
         self.log("val_nce_loss", nce_loss.data.item())
@@ -189,16 +211,64 @@ class EMGPolicy(L.LightningModule):
 
 
 class EMGAgent:
-    def __init__(self, policy: GaussianEncoder):
+    def __init__(self, policy: EMGEncoder):
         self.policy = policy
 
-    def sample_action(self, observation) -> float:
+    def sample_action(self, observation, sample_mean=False) -> float:
         emg_obs = torch.tensor(observation['emg_observation'], dtype=torch.float32)
         with torch.no_grad():
-            action = self.policy.sample(emg_obs)
+            action = self.policy.sample_action(emg_obs, sample_mean=sample_mean)
             """TODO: properly address action dimension mismatch in emg env"""
-            action = F.pad(action, (0, 1)) # pad zero to last action dimension
+            action = F.pad(action, (0, 1), value=0) # pad zero to last action dimension
         return action.detach().numpy()
 
     def update(self):
         pass
+
+
+if __name__ == "__main__":
+    from lift.rl.utils import gym_env_maker, apply_env_transforms
+    torch.manual_seed(0)
+
+    config = BaseConfig()
+    env = NpGymEnv(
+        "FetchReachDense-v2", 
+        cat_obs=True, 
+        cat_keys=config.teacher.env_cat_keys,
+    )
+    torchrl_env = apply_env_transforms(gym_env_maker("FetchReachDense-v2"))
+    teacher = SAC(
+        config.teacher, torchrl_env, torchrl_env
+    )
+
+    encoder = EMGEncoder(config, env, teacher)
+    
+    # synthetic data
+    batch_size = 128
+    batch = {
+        "obs": torch.randn(batch_size, env.observation_space["observation"].shape[-1]),
+        "emg_obs": 100 * torch.randn(batch_size, encoder.x_dim), # multiple 100 to get large action in encoder
+        "act": torch.randn(batch_size, env.action_space.shape[-1]),
+    }
+    
+    # test tanh squash action
+    with torch.no_grad():
+        act_sample = encoder.sample_action(batch["emg_obs"], sample_mean=False)
+        act_mean = encoder.sample_action(batch["emg_obs"], sample_mean=True)
+    assert torch.all(act_sample.abs() < 1.)
+    assert torch.all(act_mean.abs() < 1.)
+    assert list(act_sample.shape) == [batch_size, 3]
+    assert list(act_mean.shape) == [batch_size, 3]
+
+    # test loss funcs
+    with torch.no_grad():
+        z_dist = encoder.get_z_dist(batch["emg_obs"])
+        z = z_dist.sample()
+        nce_loss = encoder.compute_infonce_loss(batch["emg_obs"], z)
+        kl_loss = encoder.compute_kl_loss(batch["obs"], batch["act"], z, z_dist)
+    
+    # test emg agent
+    agent = EMGAgent(encoder)
+    act = agent.sample_action({"emg_observation": batch["emg_obs"].numpy()})
+    assert list(act.shape) == [batch_size, 4]
+    assert sum(act[:, -1] == 0) == batch_size

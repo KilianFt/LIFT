@@ -27,7 +27,9 @@ def maybe_rollout(env: NpGymEnv, teacher, config: BaseConfig, use_saved=True):
             teacher,
             n_steps=config.n_steps_rollout,
             terminate_on_done=False,
-            reset_on_done=True
+            reset_on_done=True,
+            random_pertube_prob=config.random_pertube_prob,
+            action_noise=config.action_noise,
         )
         rollout_file.parent.mkdir(exist_ok=True, parents=True)
         with open(rollout_file, "wb") as f:
@@ -36,15 +38,17 @@ def maybe_rollout(env: NpGymEnv, teacher, config: BaseConfig, use_saved=True):
 
 def validate(env, teacher, sim, encoder, logger):
     emg_env = EMGEnv(env, teacher, sim)
-    agent = EMGAgent(encoder.encoder)
+    agent = EMGAgent(encoder)
     data = rollout(
         emg_env, 
         agent, 
         n_steps=1000, 
-        terminate_on_done=True,
+        terminate_on_done=False,
+        reset_on_done=True,
     )
     mean_rwd = data["rwd"].mean()
-    print("encoder reward", mean_rwd)
+    std_rwd = data["rwd"].std()
+    print(f"encoder reward mean: {mean_rwd:.4f}, std: {std_rwd:.4f}")
     if logger is not None:
         logger.log_metrics({"encoder reward": mean_rwd})
     return data
@@ -105,21 +109,21 @@ def main():
     )
     
     # collect teacher data
-    data = maybe_rollout(env, teacher, config, use_saved=True)
+    data = maybe_rollout(env, teacher, config, use_saved=False)
     mean_rwd = data["rwd"].mean()
     print("teacher reward", mean_rwd)
     if logger is not None:
         logger.log_metrics({"teacher reward": mean_rwd})
 
     # test once before train
-    encoder = EMGEncoder(config, teacher)
+    encoder = EMGEncoder(config, env, teacher)
     validate(env, teacher, sim, encoder, logger)
 
     train(data, sim, encoder, logger, config)
     
     validate(env, teacher, sim, encoder, logger)
 
-    torch.save(encoder.encoder, config.models_path / 'encoder.pt')
+    torch.save(encoder, config.models_path / 'encoder.pt')
 
 
 if __name__ == "__main__":
