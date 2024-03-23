@@ -1,16 +1,13 @@
-from pathlib import Path
 import argparse
-
 import torch
-import gymnasium as gym
-from stable_baselines3 import TD3
 
 from configs import BaseConfig
 from lift.environments.emg_envs import EMGEnv
-from lift.controllers import EMGAgent
 from lift.environments.simulator import WindowSimulator
-from lift.environments.rollout import rollout
 from lift.environments.gym_envs import NpGymEnv
+from lift.environments.rollout import rollout
+
+from lift.controllers import EMGAgent
 from lift.teacher import load_teacher
 
 def visualize_teacher(config: BaseConfig):
