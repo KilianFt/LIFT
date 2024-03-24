@@ -23,13 +23,15 @@ def main():
 
     train_env = parallel_env_maker(
         config.teacher.env_name,
-        cat_obs_keys=["observation", "desired_goal", "achieved_goal"],
+        cat_obs=config.teacher.env_cat_obs,
+        cat_keys=config.teacher.env_cat_keys,
         max_eps_steps=config.teacher.max_eps_steps,
         device="cpu",
     )
     eval_env = parallel_env_maker(
         config.teacher.env_name,
-        cat_obs_keys=["observation", "desired_goal", "achieved_goal"],
+        cat_obs=config.teacher.env_cat_obs,
+        cat_keys=config.teacher.env_cat_keys,
         max_eps_steps=config.teacher.max_eps_steps,
         device="cpu",
     )
