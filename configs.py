@@ -50,8 +50,9 @@ class TeacherConfig(BaseModel):
 class EncoderConfig(BaseModel):
     h_dim: int = 128
     tau: float = 0.5
-    beta_1: float = 1. # mi weight
+    beta_1: float = 0.5 # mi weight
     beta_2: float = 1. # kl weight
+    kl_approx_method: str = "mse" # choices=[logp, squared, mse]
     hidden_size: int = 256
     n_layers: int = 4
     dropout: float = 0.
@@ -74,7 +75,7 @@ class BaseConfig(BaseModel):
     project_name: str = "lift"
     wandb_mode: str = "online"
 
-    seed: int = 101
+    seed: int = 42
     num_workers: int = 7
     teacher_train_timesteps: int = 150_000
     action_size: int = 3 # could be read from env
@@ -83,16 +84,16 @@ class BaseConfig(BaseModel):
     window_size: int = 200
     n_steps_rollout: int = 10_000
     random_pertube_prob: int = 0.5
-    action_noise: float = 0.1
+    action_noise: float = 0.3
     
     # supervised learning config
     # dropout: float = .1
     train_ratio: float = 0.8
     batch_size: int = 128
     num_workers: int = 7
-    epochs: int = 15
+    epochs: int = 30
     lr: float = 1e-4
-    gradient_clip_val: float = 0.5
+    gradient_clip_val: float = 2.
     noise: float = 0.0
     checkpoint_frequency: int = 1
     save_top_k: int = -1 # set to -1 to save all checkpoints

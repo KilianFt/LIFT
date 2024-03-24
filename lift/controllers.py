@@ -70,6 +70,7 @@ class EMGEncoder(L.LightningModule):
         self.lr = config.lr
         self.beta_1 = config.encoder.beta_1
         self.beta_2 = config.encoder.beta_2
+        self.kl_approx_method = config.encoder.kl_approx_method
 
         self.x_dim = config.feature_size
         self.a_dim = config.action_size
@@ -124,27 +125,36 @@ class EMGEncoder(L.LightningModule):
         loss = cross_entropy(labels, p)
         return loss.mean()
     
-    def compute_kl_loss(self, o, a, z, z_dist):
+    def compute_kl_loss(self, o, z, z_dist):
         """Compute sample based kl divergence from teacher"""
         teacher_inputs = TensorDict({
             "observation": o,
             "action": F.pad(z, (0, 1), value=0),
         })
-        # log_prior = self.teacher.log_prob(teacher_inputs)
-        # ent = z_dist.entropy().sum(-1)
-        # kl = -(log_prior + ent).mean()
 
-        with torch.no_grad():
-            teacher_dist = self.teacher.get_dist(teacher_inputs)
-            a_teacher = teacher_dist.mode[..., :-1]
+        if self.kl_approx_method == "logp":
+            log_prior = self.teacher.log_prob(teacher_inputs)
+            ent = -z_dist.log_prob(z)
+            kl = -(log_prior + ent).mean()
+        elif self.kl_approx_method == "squared":
+            # john schulman kl approximation
+            log_prior = self.teacher.log_prob(teacher_inputs)
+            log_post = z_dist.log_prob(z)
+            kl = 0.5 * nn.SmoothL1Loss()(log_post, log_prior)
+        elif self.kl_approx_method == "mse":
+            with torch.no_grad():
+                teacher_dist = self.teacher.get_dist(teacher_inputs)
+                a_teacher = teacher_dist.mode[..., :-1]
+            kl = torch.pow(z - a_teacher, 2).mean()
+        else:
+            raise ValueError("kl approximation method much be one of [logp, squared, mse]")
         
-        kl = torch.pow(z - a_teacher, 2).mean()
         return kl
     
-    def compute_loss(self, x, o, a, z_dist):
+    def compute_loss(self, x, o, z_dist):
         z = z_dist.rsample()
         nce_loss = self.compute_infonce_loss(x, z)
-        kl_loss = self.compute_kl_loss(o, a, z, z_dist)
+        kl_loss = self.compute_kl_loss(o, z, z_dist)
         loss = self.beta_1 * nce_loss + self.beta_2 * kl_loss
         return loss, nce_loss, kl_loss
     
@@ -155,7 +165,7 @@ class EMGEncoder(L.LightningModule):
         a = a[:,:self.a_dim].clone() # remove last element from y
 
         z_dist = self.get_z_dist(x)
-        loss, _, _ = self.compute_loss(x, o, a, z_dist)
+        loss, _, _ = self.compute_loss(x, o, z_dist)
         
         self.log("train_loss", loss.data.item())
         return loss
@@ -167,7 +177,7 @@ class EMGEncoder(L.LightningModule):
         a = a[:,:self.a_dim].clone() # remove last element from y
         
         z_dist = self.get_z_dist(x)
-        loss, nce_loss, kl_loss = self.compute_loss(x, o, a, z_dist)
+        loss, nce_loss, kl_loss = self.compute_loss(x, o, z_dist)
 
         mae = torch.abs(z_dist.mode - a).mean()
 
@@ -228,6 +238,7 @@ class EMGAgent:
 
 if __name__ == "__main__":
     from lift.rl.utils import gym_env_maker, apply_env_transforms
+    from lift.teacher import load_teacher
     torch.manual_seed(0)
 
     config = BaseConfig()
@@ -265,7 +276,7 @@ if __name__ == "__main__":
         z_dist = encoder.get_z_dist(batch["emg_obs"])
         z = z_dist.sample()
         nce_loss = encoder.compute_infonce_loss(batch["emg_obs"], z)
-        kl_loss = encoder.compute_kl_loss(batch["obs"], batch["act"], z, z_dist)
+        kl_loss = encoder.compute_kl_loss(batch["obs"], z, z_dist)
     
     # test emg agent
     agent = EMGAgent(encoder)
