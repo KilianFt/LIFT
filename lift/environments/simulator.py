@@ -9,8 +9,7 @@ import torch.nn.functional as F
 import torch.distributions as torch_dist
 
 from libemg.utils import get_windows
-from lift.utils import compute_features
-from lift.datasets import get_mad_sample
+from lift.datasets import get_mad_sample, compute_features
 
 # TODO
 # - how to handle action transitions

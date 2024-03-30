@@ -5,6 +5,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader, random_split
 from libemg.utils import get_windows
+from libemg.feature_extractor import FeatureExtractor
 
 class EMGSLDataset(Dataset):
     """Supervised learning dataset"""
@@ -110,3 +111,60 @@ def get_mad_windows(data_path, window_size, window_increment, emg_min = -128, em
     # flat_actions = actions.flatten(start_dim=0, end_dim=1)
     return flat_windows, labels
 
+def mad_augmentation(emg, actions, num_augmentation):
+    """Discrete emg data augmentation using random interpolation
+
+    Args:
+        emg (list): list of emg signals for each dof activation
+        actions (list): list of dof activations for each discrete action
+
+    Returns:
+        sample_emg (torch.tensor): sampled emgs. size=[num_augmentation, num_channels, window_size]
+        sample_actions (torch.tensor): sampled actions. size=[num_augmentation, act_dim]
+    """
+    idx_baseline = [i for i in range(len(actions)) if torch.all(actions[i] == 0)][0]
+    idx_pos = [i for i in range(len(actions)) if torch.any(actions[i] > 0)]
+    idx_neg = [i for i in range(len(actions)) if torch.any(actions[i] < 0)]
+    
+    emg_baseline = emg[idx_baseline]
+    action_baseline = actions[idx_baseline]
+    emg_pos = torch.stack([emg[i] for i in idx_pos])
+    action_pos = torch.stack([actions[i] for i in idx_pos])
+    emg_neg = torch.stack([emg[i] for i in idx_neg])
+    action_neg = torch.stack([actions[i] for i in idx_neg])
+    
+    act_dim = action_baseline.shape[-1]
+    sample_actions = torch.rand(num_augmentation, act_dim) * 2 - 1
+    
+    # init emg samples with baseline
+    idx_sample_baseline = torch.randint(len(emg_baseline), (num_augmentation,))
+    sample_baseline = emg_baseline[idx_sample_baseline]
+    
+    # interpolate emg as: (abs - baseline) * act
+    sample_emg = torch.zeros(*[num_augmentation] + list(emg_baseline.shape)[1:])
+    for i in range(act_dim):
+        idx_sample_pos = torch.randint(len(emg_baseline), (num_augmentation,))
+        idx_sample_neg = torch.randint(len(emg_baseline), (num_augmentation,))
+        pos_component = (emg_pos[i][idx_sample_pos] - sample_baseline) / action_pos[i][i]
+        neg_component = emg_neg[i][idx_sample_neg] - sample_baseline / action_neg[i][i].abs()
+        
+        abs_action = sample_actions[:, i].abs().view(-1, 1, 1)
+        is_pos = 1 * (sample_actions[:, i] > 0).view(-1, 1, 1)
+        sample_emg += (
+            is_pos * abs_action * pos_component + \
+            (1 - is_pos) * abs_action * neg_component + \
+            sample_baseline
+        )
+
+    sample_emg = sample_emg + sample_baseline
+    
+    return sample_emg, sample_actions
+
+def compute_features(windows, feature_list=['MAV', 'SSC', 'ZC', 'WL']):
+    features = FeatureExtractor().extract_features(
+        feature_list, 
+        windows.numpy()
+    )
+    features = np.stack(list(features.values()), axis=-1)
+    features = torch.from_numpy(features).flatten(start_dim=1).to(torch.float32)
+    return features
