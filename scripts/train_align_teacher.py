@@ -12,7 +12,7 @@ from lift.environments.rollout import rollout
 
 from lift.teacher import load_teacher
 from lift.datasets import get_dataloaders
-from lift.controllers import EMGEncoder, EMGAgent
+from lift.controllers import MITrainer, EMGAgent
 
 
 def maybe_rollout(env: NpGymEnv, teacher, config: BaseConfig, use_saved=True):
@@ -22,6 +22,7 @@ def maybe_rollout(env: NpGymEnv, teacher, config: BaseConfig, use_saved=True):
         with open(rollout_file, "rb") as f:
             data = pickle.load(f)
     else:
+        print("collecting training data from teacher")
         data = rollout(
             env,
             teacher,
@@ -114,16 +115,23 @@ def main():
     print("teacher reward", mean_rwd)
     if logger is not None:
         logger.log_metrics({"teacher reward": mean_rwd})
+    
+    # load bc encoder
+    bc_trainer = torch.load(config.models_path / "bc.pt")
+
+    # init trainer
+    trainer = MITrainer(config, env, teacher)
+    trainer.encoder.load_state_dict(bc_trainer.encoder.state_dict())
 
     # test once before train
-    encoder = EMGEncoder(config, env, teacher)
-    validate(env, teacher, sim, encoder, logger)
+    validate(env, teacher, sim, trainer.encoder, logger)
 
-    train(data, sim, encoder, logger, config)
+    train(data, sim, trainer, logger, config)
     
-    validate(env, teacher, sim, encoder, logger)
+    # test once after train
+    validate(env, teacher, sim, trainer.encoder, logger)
 
-    torch.save(encoder, config.models_path / 'encoder.pt')
+    torch.save(trainer, config.models_path / 'encoder.pt')
 
 
 if __name__ == "__main__":
