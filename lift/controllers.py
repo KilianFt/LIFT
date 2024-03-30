@@ -63,10 +63,92 @@ class GaussianEncoder(nn.Module):
         return z
 
 
-class EMGEncoder(L.LightningModule):
-    """Encode EMG features using MI maximization"""
+class TanhGaussianEncoder(nn.Module):
+    def __init__(
+            self, 
+            input_dim, 
+            output_dim, 
+            hidden_dims, 
+            dropout=0., 
+            out_min=-1., 
+            out_max=1.,
+        ):
+        super().__init__()
+        self.out_min = out_min
+        self.out_max = out_max
+        self.base = GaussianEncoder(
+            input_dim, output_dim, hidden_dims, dropout
+        )
+    
+    def get_dist(self, x):
+        mu, sd = self.base.forward(x)
+        dist = TanhNormal(mu, sd, min=self.out_min, max=self.out_max)
+        return dist
+    
+    def sample(self, x):
+        dist = self.get_dist(x)
+        z = dist.rsample()
+        return z
+
+
+class BCTrainer(L.LightningModule):
+    """Behavior cloning trainer"""
+    def __init__(self, config: BaseConfig, env: NpGymEnv):
+        super().__init__()
+        self.lr = config.lr
+        self.x_dim = config.feature_size
+        self.a_dim = config.action_size
+        
+        hidden_dims = [config.encoder.hidden_size for _ in range(config.encoder.n_layers)]
+        self.act_max = torch.from_numpy(env.action_space.high[..., :-1]).to(torch.float32)
+        self.act_min = torch.from_numpy(env.action_space.low[..., :-1]).to(torch.float32)
+
+        self.encoder = TanhGaussianEncoder(
+            self.x_dim, 
+            self.a_dim, 
+            hidden_dims, 
+            dropout=config.encoder.dropout,
+            out_min=self.act_min,
+            out_max=self.act_max,
+        )
+
+    def compute_loss(self, dist, a):
+        loss = -dist.log_prob(a).mean()
+        return loss
+    
+    def training_step(self, batch, _):
+        x = batch["emg_obs"]
+        a = batch["act"]
+
+        dist = self.encoder.get_dist(x)
+        loss = self.compute_loss(dist, a)
+        mae = torch.abs(dist.mode - a).mean()
+        
+        self.log("train_loss", loss.data.item())
+        self.log("train_mae", mae.data.item())
+        return loss
+
+    def validation_step(self, batch, _):
+        x = batch["emg_obs"]
+        a = batch["act"]
+        
+        dist = self.encoder.get_dist(x)
+        loss = self.compute_loss(dist, a)
+        mae = torch.abs(dist.mode - a).mean()
+
+        self.log("val_loss", loss.data.item())
+        self.log("val_mae", mae.data.item())
+        return loss
+
+    def configure_optimizers(self):
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
+        return optimizer
+    
+
+class MITrainer(L.LightningModule):
+    """Mutual information trainer"""
     def __init__(self, config: BaseConfig, env: NpGymEnv, teacher: SAC):
-        super(EMGEncoder, self).__init__()
+        super().__init__()
         self.lr = config.lr
         self.beta_1 = config.encoder.beta_1
         self.beta_2 = config.encoder.beta_2
@@ -76,9 +158,16 @@ class EMGEncoder(L.LightningModule):
         self.a_dim = config.action_size
         h_dim = config.encoder.h_dim
         hidden_dims = [config.encoder.hidden_size for _ in range(config.encoder.n_layers)]
+        self.act_max = torch.from_numpy(env.action_space.high[..., :-1]).to(torch.float32)
+        self.act_min = torch.from_numpy(env.action_space.low[..., :-1]).to(torch.float32)
 
-        self.encoder = GaussianEncoder(
-            self.x_dim, self.a_dim, hidden_dims, dropout=config.encoder.dropout
+        self.encoder = TanhGaussianEncoder(
+            self.x_dim, 
+            self.a_dim, 
+            hidden_dims, 
+            dropout=config.encoder.dropout,
+            out_min=self.act_min,
+            out_max=self.act_max,
         )
         self.critic_x = MLP(
             self.x_dim, 
@@ -97,23 +186,6 @@ class EMGEncoder(L.LightningModule):
             output_activation=None,
         ) 
         self.teacher = teacher.model.policy
-
-        self.act_max = torch.from_numpy(env.action_space.high[..., :-1]).to(torch.float32)
-        self.act_min = torch.from_numpy(env.action_space.low[..., :-1]).to(torch.float32)
-    
-    def get_z_dist(self, x):
-        mu, sd = self.encoder.forward(x)
-        z_dist = TanhNormal(mu, sd, min=self.act_min, max=self.act_max)
-        return z_dist
-    
-    def sample_action(self, x, sample_mean=False):
-        act_dist = self.get_z_dist(x)
-
-        if sample_mean:
-            act = act_dist.mode
-        else:
-            act = act_dist.rsample()
-        return act
     
     def compute_infonce_loss(self, x, z):
         h_x = self.critic_x(x)
@@ -164,10 +236,12 @@ class EMGEncoder(L.LightningModule):
         a = batch["act"]
         a = a[:,:self.a_dim].clone() # remove last element from y
 
-        z_dist = self.get_z_dist(x)
+        z_dist = self.encoder.get_dist(x)
         loss, _, _ = self.compute_loss(x, o, z_dist)
+        mae = torch.abs(z_dist.mode - a).mean()
         
         self.log("train_loss", loss.data.item())
+        self.log("train_mae", mae.data.item())
         return loss
 
     def validation_step(self, batch, _):
@@ -176,7 +250,7 @@ class EMGEncoder(L.LightningModule):
         a = batch["act"]
         a = a[:,:self.a_dim].clone() # remove last element from y
         
-        z_dist = self.get_z_dist(x)
+        z_dist = self.encoder.get_dist(x)
         loss, nce_loss, kl_loss = self.compute_loss(x, o, z_dist)
 
         mae = torch.abs(z_dist.mode - a).mean()
@@ -185,7 +259,6 @@ class EMGEncoder(L.LightningModule):
         self.log("val_nce_loss", nce_loss.data.item())
         self.log("val_kl_loss", kl_loss.data.item())
         self.log("val_mae_loss", mae.data.item())
-
         return loss
 
     def configure_optimizers(self):
@@ -221,19 +294,21 @@ class EMGPolicy(L.LightningModule):
 
 
 class EMGAgent:
-    def __init__(self, policy: EMGEncoder):
+    """Wrapper for encoder action selection"""
+    def __init__(self, policy: TanhGaussianEncoder | GaussianEncoder):
         self.policy = policy
 
     def sample_action(self, observation, sample_mean=False) -> float:
         emg_obs = torch.tensor(observation['emg_observation'], dtype=torch.float32)
         with torch.no_grad():
-            action = self.policy.sample_action(emg_obs, sample_mean=sample_mean)
+            dist = self.policy.get_dist(emg_obs)
+            if sample_mean:
+                act = dist.mode
+            else:
+                act = dist.sample()
             """TODO: properly address action dimension mismatch in emg env"""
-            action = F.pad(action, (0, 1), value=0) # pad zero to last action dimension
-        return action.detach().numpy()
-
-    def update(self):
-        pass
+            act = F.pad(act, (0, 1), value=0) # pad zero to last action dimension
+        return act.detach().numpy()
 
 
 if __name__ == "__main__":
@@ -251,34 +326,47 @@ if __name__ == "__main__":
     teacher = SAC(
         config.teacher, torchrl_env, torchrl_env
     )
-
-    encoder = EMGEncoder(config, env, teacher)
     
     # synthetic data
     batch_size = 128
     batch = {
         "obs": torch.randn(batch_size, env.observation_space["observation"].shape[-1]),
-        "emg_obs": 100 * torch.randn(batch_size, encoder.x_dim), # multiple 100 to get large action in encoder
-        "act": torch.randn(batch_size, env.action_space.shape[-1]),
+        "emg_obs": 100 * torch.randn(batch_size, config.feature_size), # multiple 100 to get large action in encoder
+        "act": torch.rand(batch_size, env.action_space.shape[-1]) * 2 - 1,
     }
-    
-    # test tanh squash action
-    with torch.no_grad():
-        act_sample = encoder.sample_action(batch["emg_obs"], sample_mean=False)
-        act_mean = encoder.sample_action(batch["emg_obs"], sample_mean=True)
-    assert torch.all(act_sample.abs() < 1.)
-    assert torch.all(act_mean.abs() < 1.)
-    assert list(act_sample.shape) == [batch_size, 3]
-    assert list(act_mean.shape) == [batch_size, 3]
 
-    # test loss funcs
-    with torch.no_grad():
-        z_dist = encoder.get_z_dist(batch["emg_obs"])
-        z = z_dist.sample()
-        nce_loss = encoder.compute_infonce_loss(batch["emg_obs"], z)
-        kl_loss = encoder.compute_kl_loss(batch["obs"], z, z_dist)
+    # test tanh encoder
+    input_dim = config.feature_size
+    output_dim = config.action_size
+    h_dim = config.encoder.h_dim
+    hidden_dims = [config.encoder.hidden_size for _ in range(config.encoder.n_layers)]
+
+    encoder = TanhGaussianEncoder(
+        input_dim,
+        output_dim,
+        hidden_dims,
+    )
+
+    act_sample = encoder.sample(batch["emg_obs"])
+    assert torch.all(act_sample.abs() < 1.)
+    assert list(act_sample.shape) == [batch_size, 3]
     
-    # test emg agent
+    # test bc trainer
+    bc_trainer = BCTrainer(config, env)
+    with torch.no_grad():
+        dist = bc_trainer.encoder.get_dist(batch["emg_obs"])
+        loss = bc_trainer.compute_loss(dist, batch["act"][..., :3])
+    assert list(loss.shape) == []
+    
+    # test mi trainer
+    mi_trainer = MITrainer(config, env, teacher)
+    with torch.no_grad():
+        z_dist = mi_trainer.encoder.get_dist(batch["emg_obs"])
+        z = z_dist.sample()
+        nce_loss = mi_trainer.compute_infonce_loss(batch["emg_obs"], z)
+        kl_loss = mi_trainer.compute_kl_loss(batch["obs"], z, z_dist)
+
+    # test emg agent with tanh encoder
     agent = EMGAgent(encoder)
     act = agent.sample_action({"emg_observation": batch["emg_obs"].numpy()})
     assert list(act.shape) == [batch_size, 4]
