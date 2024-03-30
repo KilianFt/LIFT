@@ -29,7 +29,7 @@ def visualize_teacher(config: BaseConfig, sample_mean=False):
     )
     print(f"mean reward: {data['rwd'].mean():.4f}")
 
-def visualize_encoder(config: BaseConfig, sample_mean=False):
+def visualize_encoder(config: BaseConfig, encoder_type, sample_mean=False):
     teacher = load_teacher(config)
 
     env = NpGymEnv(
@@ -51,8 +51,12 @@ def visualize_encoder(config: BaseConfig, sample_mean=False):
     emg_env = EMGEnv(env, teacher, sim)
     
     # load encoder
-    encoder = torch.load(config.models_path / "encoder.pt")
-    agent = EMGAgent(policy=encoder)
+    if encoder_type == "sft":
+        trainer = torch.load(config.models_path / "spt.pt")
+    elif encoder_type == "mi":
+        trainer = torch.load(config.models_path / "mi.pt")
+    
+    agent = EMGAgent(policy=trainer.encoder)
     
     data = rollout(
         emg_env,
@@ -70,15 +74,15 @@ def main(args):
 
     if args["agent"] == "teacher":
         visualize_teacher(config, args["sample_mean"])
-    elif args["agent"] == "encoder":
-        visualize_encoder(config, args["sample_mean"])
+    elif args["agent"] in ["spt", "mi"]:
+        visualize_encoder(config, args["agent"], args["sample_mean"])
     else:
         raise ValueError("agent to visualize not recognized")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     bool_ = lambda x: x.lower() == "true"
-    parser.add_argument("--agent", type=str, choices=["teacher", "encoder"])
+    parser.add_argument("--agent", type=str, choices=["teacher", "spt", "mi"])
     parser.add_argument("--sample_mean", type=bool_, default=False)
     args = vars(parser.parse_args())
 
