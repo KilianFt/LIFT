@@ -50,9 +50,9 @@ class TeacherConfig(BaseModel):
 class EncoderConfig(BaseModel):
     h_dim: int = 128
     tau: float = 0.5
-    beta_1: float = 0.5 # mi weight
+    beta_1: float = 1. # mi weight, use 0.5 for mse
     beta_2: float = 1. # kl weight
-    kl_approx_method: str = "mse" # choices=[logp, squared, mse]
+    kl_approx_method: str = "logp" # choices=[logp, abs, mse]
     hidden_size: int = 256
     n_layers: int = 4
     dropout: float = 0.
@@ -63,9 +63,11 @@ class SimulatorConfig(BaseModel):
     recording_strength: float = 0.5
 
 
+"""TODO: make different configs for bc and mi training"""
 class BaseConfig(BaseModel):
     # path config
     root_path: str = ROOT_PATH
+    data_path: str = ROOT_PATH / "datasets"
     mad_data_path: str = ROOT_PATH / "datasets/MyoArmbandDataset/PreTrainingDataset/"
     models_path: str = ROOT_PATH / "models"
     rollout_data_path: str = ROOT_PATH / "datasets" / "rollouts"
@@ -91,7 +93,7 @@ class BaseConfig(BaseModel):
     train_ratio: float = 0.8
     batch_size: int = 128
     num_workers: int = 7
-    epochs: int = 30
+    epochs: int = 50
     lr: float = 1e-4
     gradient_clip_val: float = 2.
     noise: float = 0.0
