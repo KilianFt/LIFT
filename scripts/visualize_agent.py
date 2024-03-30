@@ -51,8 +51,8 @@ def visualize_encoder(config: BaseConfig, encoder_type, sample_mean=False):
     emg_env = EMGEnv(env, teacher, sim)
     
     # load encoder
-    if encoder_type == "sft":
-        trainer = torch.load(config.models_path / "spt.pt")
+    if encoder_type == "bc":
+        trainer = torch.load(config.models_path / "bc.pt")
     elif encoder_type == "mi":
         trainer = torch.load(config.models_path / "mi.pt")
     
@@ -74,7 +74,7 @@ def main(args):
 
     if args["agent"] == "teacher":
         visualize_teacher(config, args["sample_mean"])
-    elif args["agent"] in ["spt", "mi"]:
+    elif args["agent"] in ["bc", "mi"]:
         visualize_encoder(config, args["agent"], args["sample_mean"])
     else:
         raise ValueError("agent to visualize not recognized")
@@ -82,7 +82,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     bool_ = lambda x: x.lower() == "true"
-    parser.add_argument("--agent", type=str, choices=["teacher", "spt", "mi"])
+    parser.add_argument("--agent", type=str, choices=["teacher", "bc", "mi"])
     parser.add_argument("--sample_mean", type=bool_, default=False)
     args = vars(parser.parse_args())
 

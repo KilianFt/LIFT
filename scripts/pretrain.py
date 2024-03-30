@@ -110,7 +110,7 @@ def main():
     # test once after train
     validate(env, teacher, sim, trainer.encoder, logger)
 
-    torch.save(trainer, config.models_path / "spt.pt")
+    torch.save(trainer, config.models_path / "bc.pt")
 
 if __name__ == "__main__":
     main()

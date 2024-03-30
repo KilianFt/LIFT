@@ -208,7 +208,7 @@ class MITrainer(L.LightningModule):
             log_prior = self.teacher.log_prob(teacher_inputs)
             ent = -z_dist.log_prob(z)
             kl = -(log_prior + ent).mean()
-        elif self.kl_approx_method == "squared":
+        elif self.kl_approx_method == "abs":
             # john schulman kl approximation
             log_prior = self.teacher.log_prob(teacher_inputs)
             log_post = z_dist.log_prob(z)
@@ -219,7 +219,7 @@ class MITrainer(L.LightningModule):
                 a_teacher = teacher_dist.mode[..., :-1]
             kl = torch.pow(z - a_teacher, 2).mean()
         else:
-            raise ValueError("kl approximation method much be one of [logp, squared, mse]")
+            raise ValueError("kl approximation method much be one of [logp, abs, mse]")
         
         return kl
     
@@ -258,7 +258,7 @@ class MITrainer(L.LightningModule):
         self.log("val_loss", loss.data.item())
         self.log("val_nce_loss", nce_loss.data.item())
         self.log("val_kl_loss", kl_loss.data.item())
-        self.log("val_mae_loss", mae.data.item())
+        self.log("val_mae", mae.data.item())
         return loss
 
     def configure_optimizers(self):
