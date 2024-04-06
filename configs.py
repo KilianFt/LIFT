@@ -87,6 +87,8 @@ class BaseConfig(BaseModel):
     n_steps_rollout: int = 10_000
     random_pertube_prob: int = 0.5
     action_noise: float = 0.3
+    num_augmentation: int = 10000 # for pretraining
+    window_increment: int = 100 # for pretraining
     
     # supervised learning config
     # dropout: float = .1

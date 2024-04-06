@@ -136,6 +136,7 @@ class WindowSimulator:
     """TODO: maybe aggregate all mad samples and feed as input to this function in case we want to fit to multiple participants"""
     def fit_params_to_mad_sample(self, data_path, desired_labels = [1, 2, 3, 4, 5, 6]):
         # 0 = Neutral, 1 = Radial Deviation, 2 = Wrist Flexion, 3 = Ulnar Deviation, 4 = Wrist Extension, 5 = Hand Close, 6 = Hand Open
+        # TODO fit neutral
         emg_list, label_list = get_mad_sample(data_path, desired_labels = desired_labels)
         sort_id = np.argsort(label_list)
         emg_list = [emg_list[i] for i in sort_id]

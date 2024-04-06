@@ -11,9 +11,10 @@ from lift.environments.simulator import WindowSimulator
 from lift.environments.rollout import rollout
 from lift.teacher import load_teacher
 
-from lift.datasets import mad_augmentation, compute_features
-from lift.datasets import get_dataloaders
+from lift.datasets import mad_augmentation, compute_features, get_dataloaders, get_mad_windows
 from lift.controllers import BCTrainer, EMGAgent
+from lift.utils import mad_labels_to_actions
+
 
 def validate(env, teacher, sim, encoder, logger):
     emg_env = EMGEnv(env, teacher, sim)
@@ -59,6 +60,44 @@ def train(emg_features, actions, model, logger, config: BaseConfig):
         val_dataloaders=val_dataloader,
     )
 
+def load_fake_data(config):
+    # load data
+    data = torch.load(os.path.join(config.data_path, "fake_mad_data.pt"))
+    num_samples = len(data["emg"][0])
+    emg_dof = torch.cat(data["emg"], dim=0)
+    actions_dof = torch.cat([a.view(1, -1).repeat_interleave(num_samples, 0) for a in data["action"]], dim=0)
+    
+    # data augmentation
+    emg_aug, actions_aug = mad_augmentation(data["emg"], data["action"], config.num_augmentation)
+    emg = torch.cat([emg_dof, emg_aug], dim=0)
+    actions = torch.cat([actions_dof, actions_aug], dim=0)
+
+    emg_features = compute_features(emg)
+
+    return emg_features, actions
+
+def load_data(config, load_fake=False):
+    if load_fake:
+        return load_fake_data(config)
+
+    data_path = (config.mad_data_path / "Female0"/ "training0").as_posix()
+    mad_emg, mad_labels, windows_list, label_list = get_mad_windows(data_path, 
+                                                                    config.window_size,
+                                                                    config.window_increment,
+                                                                    desired_labels=[0, 1, 2, 3, 4, 5, 6],
+                                                                    return_lists=True)
+    mad_featuers = compute_features(mad_emg)
+    actions_list = mad_labels_to_actions(label_list)
+    mad_actions = mad_labels_to_actions(mad_labels)
+
+    sample_emg, sample_actions = mad_augmentation(windows_list, actions_list, config.num_augmentation)
+    sample_features = compute_features(sample_emg)
+
+    emg = torch.cat([mad_featuers, sample_features], dim=0)
+    actions = torch.cat([mad_actions, sample_actions], dim=0)
+
+    return emg, actions
+
 def main():
     config = BaseConfig()
     L.seed_everything(config.seed)
@@ -68,19 +107,7 @@ def main():
     else:
         logger = None
 
-    # load data
-    data = torch.load(os.path.join(config.data_path, "fake_mad_data.pt"))
-    num_samples = len(data["emg"][0])
-    emg_dof = torch.cat(data["emg"], dim=0)
-    actions_dof = torch.cat([a.view(1, -1).repeat_interleave(num_samples, 0) for a in data["action"]], dim=0)
-    
-    # data augmentation
-    num_augmentation = 10000
-    emg_aug, actions_aug = mad_augmentation(data["emg"], data["action"], num_augmentation)
-    emg = torch.cat([emg_dof, emg_aug], dim=0)
-    actions = torch.cat([actions_dof, actions_aug], dim=0)
-
-    emg_features = compute_features(emg)
+    emg_features, actions = load_data(config)
     
     # validation setup
     teacher = load_teacher(config)

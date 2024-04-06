@@ -89,7 +89,7 @@ def get_mad_sample(data_path, emg_min = -128, emg_max = 127, desired_labels = No
     return emg, labels
 
 
-def get_mad_windows(data_path, window_size, window_increment, emg_min = -128, emg_max = 127, desired_labels = None):
+def get_mad_windows(data_path, window_size, window_increment, emg_min = -128, emg_max = 127, desired_labels = None, return_lists=False):
     emg_list, label_list = get_mad_sample(data_path, emg_min, emg_max, desired_labels)
 
     sort_id = np.argsort(label_list)
@@ -109,6 +109,9 @@ def get_mad_windows(data_path, window_size, window_increment, emg_min = -128, em
 
     # actions = F.one_hot(short_labels, num_classes=5).float()
     # flat_actions = actions.flatten(start_dim=0, end_dim=1)
+    if return_lists:
+        return flat_windows, labels, windows_list, label_list
+
     return flat_windows, labels
 
 def mad_augmentation(emg, actions, num_augmentation):
