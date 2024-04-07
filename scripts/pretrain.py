@@ -11,7 +11,7 @@ from lift.environments.simulator import WindowSimulator
 from lift.environments.rollout import rollout
 from lift.teacher import load_teacher
 
-from lift.datasets import mad_augmentation, compute_features, get_dataloaders, get_mad_windows
+from lift.datasets import mad_augmentation, compute_features, get_dataloaders, get_mad_windows_dataset, get_mad_lists
 from lift.controllers import BCTrainer, EMGAgent
 from lift.utils import mad_labels_to_actions
 
@@ -80,23 +80,29 @@ def load_data(config, load_fake=False):
     if load_fake:
         return load_fake_data(config)
 
-    data_path = (config.mad_data_path / "Female0"/ "training0").as_posix()
-    mad_emg, mad_labels, windows_list, label_list = get_mad_windows(data_path, 
-                                                                    config.window_size,
-                                                                    config.window_increment,
-                                                                    desired_labels=[0, 1, 2, 3, 4, 5, 6],
-                                                                    return_lists=True)
-    mad_featuers = compute_features(mad_emg)
-    actions_list = mad_labels_to_actions(label_list)
-    mad_actions = mad_labels_to_actions(mad_labels)
+    mad_emg, mad_labels = get_mad_windows_dataset(config.mad_base_path.as_posix(),
+                                                  config.window_size,
+                                                  config.window_increment,
+                                                  desired_labels=[0, 1, 2, 3, 4, 5, 6],
+                                                  return_tensors=True,
+                                                  skip_person='Female0')
+    
+    windows_list, label_list = get_mad_lists(mad_emg, mad_labels)
 
-    sample_emg, sample_actions = mad_augmentation(windows_list, actions_list, config.num_augmentation)
-    sample_features = compute_features(sample_emg)
+    mad_features = compute_features(mad_emg)
+    mad_actions = mad_labels_to_actions(mad_labels, recording_strength=config.simulator.recording_strength)
 
-    emg = torch.cat([mad_featuers, sample_features], dim=0)
-    actions = torch.cat([mad_actions, sample_actions], dim=0)
+    if config.num_augmentation > 0:
+        actions_list = mad_labels_to_actions(label_list, recording_strength=config.simulator.recording_strength)
+        sample_emg, sample_actions = mad_augmentation(windows_list, actions_list, config.num_augmentation)
+        sample_features = compute_features(sample_emg)
 
-    return emg, actions
+        features = torch.cat([mad_features, sample_features], dim=0)
+        actions = torch.cat([mad_actions, sample_actions], dim=0)
+    else:
+        features, actions = mad_features, mad_actions
+
+    return features, actions
 
 def main():
     config = BaseConfig()

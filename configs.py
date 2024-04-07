@@ -54,13 +54,13 @@ class EncoderConfig(BaseModel):
     beta_2: float = 1. # kl weight
     kl_approx_method: str = "logp" # choices=[logp, abs, mse]
     hidden_size: int = 256
-    n_layers: int = 4
-    dropout: float = 0.
+    n_layers: int = 8
+    dropout: float = 0.1
 
 
 class SimulatorConfig(BaseModel):
     n_bursts: int = 1
-    recording_strength: float = 0.5
+    recording_strength: float = 0.8
 
 
 """TODO: make different configs for bc and mi training"""
@@ -68,7 +68,8 @@ class BaseConfig(BaseModel):
     # path config
     root_path: str = ROOT_PATH
     data_path: str = ROOT_PATH / "datasets"
-    mad_data_path: str = ROOT_PATH / "datasets/MyoArmbandDataset/PreTrainingDataset/"
+    mad_base_path: str = ROOT_PATH / "datasets" / "MyoArmbandDataset"
+    mad_data_path: str = mad_base_path / "PreTrainingDataset"
     models_path: str = ROOT_PATH / "models"
     rollout_data_path: str = ROOT_PATH / "datasets" / "rollouts"
     

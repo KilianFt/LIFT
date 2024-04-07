@@ -1,5 +1,7 @@
 import os
 import re
+import subprocess
+import time
 
 import numpy as np
 import torch
@@ -129,6 +131,10 @@ def mad_augmentation(emg, actions, num_augmentation):
     idx_pos = [i for i in range(len(actions)) if torch.any(actions[i] > 0)]
     idx_neg = [i for i in range(len(actions)) if torch.any(actions[i] < 0)]
     
+    # short emg to min samples
+    min_samples = min([el.shape[0] for el in emg])
+    emg = [el[:min_samples] for el in emg]
+
     emg_baseline = emg[idx_baseline]
     action_baseline = actions[idx_baseline]
     emg_pos = torch.stack([emg[i] for i in idx_pos])
@@ -171,3 +177,152 @@ def compute_features(windows, feature_list=['MAV', 'SSC', 'ZC', 'WL']):
     features = np.stack(list(features.values()), axis=-1)
     features = torch.from_numpy(features).flatten(start_dim=1).to(torch.float32)
     return features
+
+
+def get_raw_mad_dataset(eval_path, window_length, overlap, skip_person=None):
+    person_folders = os.listdir(eval_path)
+
+    first_folder = os.listdir(eval_path)[0]
+    keys = next(os.walk((eval_path + first_folder)))[1]
+
+    number_of_classes = 7
+    size_non_overlap = window_length - overlap
+
+    raw_dataset_dict = {}
+    for key in keys:
+
+        raw_dataset = {
+            'examples': [],
+            'labels': [],
+        }
+
+        for person_dir in person_folders:
+            # skip loading data for a certain person
+            if skip_person is not None and person_dir == skip_person:
+                print(f'skipping {skip_person}')
+                continue
+            examples = []
+            labels = []
+            data_path = eval_path + person_dir + '/' + key
+            for data_file in os.listdir(data_path):
+                if data_file.endswith(".dat"):
+                    data_read_from_file = np.fromfile((data_path + '/' + data_file), dtype=np.int16)
+                    data_read_from_file = np.array(data_read_from_file, dtype=np.float32)
+
+                    dataset_example_formatted = []
+                    example = None
+                    emg_vector = []
+                    for value in data_read_from_file:
+                        emg_vector.append(value)
+                        if (len(emg_vector) >= 8):
+                            if example is None:
+                                example = emg_vector
+                            else:
+                                example = np.row_stack((example, emg_vector))
+                            emg_vector = []
+                            if (len(example) >= window_length):
+                                example = example.transpose()
+                                dataset_example_formatted.append(example)
+                                example = example.transpose()
+                                example = example[size_non_overlap:]
+                    dataset_example_formatted = np.array(dataset_example_formatted)
+                    examples.append(dataset_example_formatted)
+                    data_file_index = int(data_file.split('classe_')[1][:-4])
+                    label = data_file_index % number_of_classes + np.zeros(dataset_example_formatted.shape[0])
+                    labels.append(label)
+
+            raw_dataset['examples'].append(np.concatenate(examples))
+            raw_dataset['labels'].append(np.concatenate(labels))
+
+        raw_dataset_dict[key] = raw_dataset
+
+    return raw_dataset_dict
+
+
+def maybe_download_mad_dataset(mad_base_dir):
+    if os.path.exists(mad_base_dir):
+        return
+    print("MyoArmbandDataset not found")
+
+    if os.path.exists(mad_base_dir + '/.lock'):
+        print("Waiting for download to finish")
+        # wait for download to finish
+        while os.path.exists(mad_base_dir + '/.lock'):
+            print(".", end="")
+            time.sleep(1)
+        return
+
+    # create a lock file to prevent multiple downloads
+    os.system(f'touch {mad_base_dir}/.lock')
+
+    print("Downloading MyoArmbandDataset")
+    cmd = f'git clone https://github.com/UlysseCoteAllard/MyoArmbandDataset {mad_base_dir}'
+    subprocess.call(cmd, shell=True)
+    print("Download finished")
+
+    # remove the lock file
+    os.system(f'rm {mad_base_dir}/.lock')
+
+
+def get_mad_windows_dataset(mad_base_dir, window_length, window_increment, desired_labels = None, return_tensors = False, skip_person = None):
+    maybe_download_mad_dataset(mad_base_dir)
+
+    train_path = mad_base_dir + '/PreTrainingDataset/'
+    eval_path = mad_base_dir + '/EvaluationDataset/'
+
+    overlap = window_length - window_increment
+    train_raw_dataset_dict = get_raw_mad_dataset(train_path, window_length, overlap, skip_person=skip_person)
+    eval_raw_dataset_dict = get_raw_mad_dataset(eval_path, window_length, overlap, skip_person=skip_person)
+
+    mad_all_windows = (
+            eval_raw_dataset_dict['training0']['examples'] +
+            eval_raw_dataset_dict['Test0']['examples'] +
+            eval_raw_dataset_dict['Test1']['examples'] +
+            train_raw_dataset_dict['training0']['examples']
+    )
+
+    mad_all_labels = (
+            eval_raw_dataset_dict['training0']['labels'] +
+            eval_raw_dataset_dict['Test0']['labels'] +
+            eval_raw_dataset_dict['Test1']['labels'] +
+            train_raw_dataset_dict['training0']['labels']
+    )
+
+    # filter by desired_labels
+    if desired_labels is None:
+        if return_tensors:
+            return torch.tensor(mad_all_windows, dtype=torch.float32), torch.tensor(mad_all_labels)
+
+        return mad_all_windows, mad_all_labels
+
+    mad_windows = None
+    mad_labels = None
+    # TODO use desired_labels
+    for mad_p_examples, mad_p_labels in zip(mad_all_windows, mad_all_labels):
+        label_map = (mad_p_labels >= 0) & (mad_p_labels <= 6)
+        mad_subject_windows = mad_p_examples[label_map]
+        subject_labels = mad_p_labels[label_map]
+
+        if mad_windows is None:
+            mad_windows = mad_subject_windows
+            mad_labels = subject_labels
+        else:
+            mad_windows = np.concatenate((mad_windows, mad_subject_windows))
+            mad_labels = np.concatenate((mad_labels, subject_labels))
+
+    print("MAD dataset loaded")
+    if return_tensors:
+        return torch.tensor(mad_windows, dtype=torch.float32), torch.tensor(mad_labels)
+
+    return mad_windows, mad_labels
+
+def get_mad_lists(mad_emg, mad_labels):
+    emg_list = []
+    label_list = []
+    for u_label in np.unique(mad_labels):
+        label_idxs = np.where(mad_labels == u_label)[0]
+        label_emg = mad_emg[label_idxs]
+        emg_list.append(label_emg)
+        label_list.append(u_label)
+
+    return emg_list, label_list

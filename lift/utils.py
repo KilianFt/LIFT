@@ -14,12 +14,14 @@ def hash_config(config):
     return config_hash
 
 """ convert labels (0 to 6) to actions """
-def mad_labels_to_actions(labels):
+def mad_labels_to_actions(labels, recording_strength=1.0):
     if not isinstance(labels, torch.Tensor):
         labels = torch.tensor(labels)
 
     if labels.max() > 6 or labels.min() < 0:
         raise ValueError("Labels should be in range [0, 6]")
+    
+    assert labels.max() <= 6 and labels.min() >= 0, "Labels should be in range [0, 6]"
 
     actions = torch.zeros(len(labels), 3)
     # labels == 0 is Rest
@@ -30,5 +32,5 @@ def mad_labels_to_actions(labels):
     actions[labels == 5, 2] = 1
     actions[labels == 6, 2] = -1
 
-    actions *= 1.0 # TODO use parameter
+    actions *= recording_strength
     return actions
