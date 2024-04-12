@@ -141,8 +141,9 @@ class WindowSimulator:
         sort_id = np.argsort(label_list)
         emg_list = [emg_list[i] for i in sort_id]
         # switch emg_list idx 1 and 2 to have opposite movements next to each other
-        emg_list_copy = copy.deepcopy(emg_list)
-        emg_list[1], emg_list[2] = emg_list_copy[2], emg_list_copy[1]
+        # TODO fix this
+        # emg_list_copy = copy.deepcopy(emg_list)
+        # emg_list[1], emg_list[2] = emg_list_copy[2], emg_list_copy[1]
 
         min_len = min([len(emg) for emg in emg_list])
         short_emgs = [emg[:min_len,:] for emg in emg_list]

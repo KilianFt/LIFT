@@ -33,6 +33,8 @@ def rollout(
     bar = tqdm(range(n_steps), desc="Rollout", unit="item")
     while len(data["rwd"]) < n_steps:
         act = agent.sample_action(obs, sample_mean=sample_mean)
+        if len(act.shape) > 1:
+            act = act[-1]
 
         # randomely pertube teacher actions to obtain broader diversity in data
         act_env = act + np.random.randn(*act.shape) * action_noise

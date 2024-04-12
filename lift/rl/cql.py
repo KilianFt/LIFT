@@ -31,17 +31,11 @@ def record_buffer(env, policy):
 
 
 class CQL(AlgoBase):
-    def __init__(self, config, train_env, eval_env):
-        super().__init__(config, train_env, eval_env)
+    def __init__(self, config, replay_buffer, eval_env):
+        super().__init__(config, eval_env, eval_env)
 
         # TODO combine with make_replay_buffer
-        # policy = RandomPolicy(train_env.action_spec)
-        collector_model = SAC(config, train_env, eval_env)
-        collector_model.load('sac.pth')
-        policy = collector_model.model["policy"]
-
-        # TODO change this so that recording can be done with different kinds of policies
-        self.replay_buffer = record_buffer(train_env, policy)
+        self.replay_buffer = replay_buffer#record_buffer(train_env, policy)
 
     def _init_loss_module(self):
         self.loss_module = CQLLoss(
@@ -51,7 +45,7 @@ class CQL(AlgoBase):
             delay_actor=False,
             delay_qvalue=True,
             alpha_init=self.config.alpha_init,
-            action_spec=self.train_env.action_spec,
+            action_spec=self.eval_env.action_spec,
         )
 
     def train(self, logger=None):
@@ -119,6 +113,13 @@ if __name__ == '__main__':
     train_env = apply_env_transforms(gym_env_maker(config.env_name))
     eval_env = apply_env_transforms(gym_env_maker(config.env_name))
 
+    collector_model = SAC(config, train_env, eval_env)
+    collector_model.load('sac.pth')
+    policy = collector_model.model["policy"]
+    # policy = RandomPolicy(train_env.action_spec)
+
+    replay_buffer = record_buffer(train_env, policy)
+
     # logger = 
-    model = CQL(config, train_env, eval_env)
+    model = CQL(config, replay_buffer, eval_env)
     model.train()

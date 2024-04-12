@@ -9,10 +9,22 @@ from lift.rl.algo import AlgoBase
 from lift.rl.utils import (
     make_collector, 
     log_metrics,
+    make_replay_buffer
 )
 
 class SAC(AlgoBase):
     """Soft actor critic trainer"""
+    def __init__(self, config, train_env, eval_env):
+        super().__init__(config, train_env, eval_env)
+            # maybe init replay buffer per algo
+        self.replay_buffer = make_replay_buffer(
+            batch_size=self.config.batch_size,
+            prioritize=self.config.prioritize,
+            buffer_size=self.config.replay_buffer_size,
+            scratch_dir=self.config.scratch_dir,
+            device="cpu",
+        )
+    
     def _init_loss_module(self):
         # Create SAC loss
         self.loss_module = SACLoss(

@@ -13,7 +13,6 @@ from torchrl.objectives import SoftUpdate
 
 
 from lift.rl.utils import (
-    make_replay_buffer, 
     get_activation, 
 )
 
@@ -25,14 +24,6 @@ class AlgoBase(ABC):
         self.eval_env = eval_env
         self.device = torch.device(config.device)
 
-        # maybe init replay buffer per algo
-        self.replay_buffer = make_replay_buffer(
-            batch_size=self.config.batch_size,
-            prioritize=self.config.prioritize,
-            buffer_size=self.config.replay_buffer_size,
-            scratch_dir=self.config.scratch_dir,
-            device="cpu",
-        )
         self._init_policy()
         self._init_loss_module()
         self._post_init_loss_module()
@@ -52,7 +43,7 @@ class AlgoBase(ABC):
             obs = obs["observation"]
             if not isinstance(obs, torch.Tensor):
                 obs = torch.from_numpy(obs).to(torch.float32)
-            obs = TensorDict({"observation": obs})
+            obs = TensorDict({"observation": obs})#, [])
 
         with torch.no_grad():
             act_dist = self.model.policy.get_dist(obs)

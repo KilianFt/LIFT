@@ -7,6 +7,7 @@ def cross_entropy(p, q, eps=1e-6):
     ce = -torch.sum(p * logq, dim=-1)
     return ce
 
+""" TODO fixme, this is not working as expected because of x[0] """
 def hash_config(config):
     print("Hashing hyperparameters")
     values = sorted(config, key=lambda x: x[0])

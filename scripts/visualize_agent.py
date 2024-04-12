@@ -37,6 +37,7 @@ def visualize_encoder(config: BaseConfig, encoder_type, sample_mean=False):
         cat_obs=True, 
         cat_keys=config.teacher.env_cat_keys,
         render_mode="human",
+        max_episode_steps=400,
     )
     sim = WindowSimulator(
         action_size=config.action_size, 
