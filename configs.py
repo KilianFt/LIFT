@@ -1,4 +1,4 @@
-from pathlib import Path
+from pathlib import Path, PosixPath
 from pydantic import BaseModel
 from typing import List
 
@@ -47,6 +47,33 @@ class TeacherConfig(BaseModel):
     eval_iter: int = 5000
     
 
+class OfflineRLConfig(BaseModel):
+    # replay
+    replay_buffer_size: int = 1000000
+    batch_size: int = 64 #256
+    num_slices: int = 8
+
+    # optim 
+    utd_ratio: float = 1.0
+    gamma: float = 0.99
+    loss_function: str = "l2"
+    lr: float = 3.0e-4
+    weight_decay: float = 0.0
+    target_update_polyak: float = 0.995
+    alpha_init: float = 1.0
+    adam_eps: float = 1.0e-8
+    
+    # nets
+    hidden_sizes: list = [256, 256]
+    activation: str = "relu"
+    default_policy_scale: float = 1.0
+    scale_lb: float = 0.1
+    device: str = "cpu"
+
+    # eval
+    eval_iter: int = 5000
+    
+
 class EncoderConfig(BaseModel):
     h_dim: int = 128
     tau: float = 0.5
@@ -54,24 +81,24 @@ class EncoderConfig(BaseModel):
     beta_2: float = 1. # kl weight
     kl_approx_method: str = "logp" # choices=[logp, abs, mse]
     hidden_size: int = 256
-    n_layers: int = 8
+    n_layers: int = 4
     dropout: float = 0.1
 
 
 class SimulatorConfig(BaseModel):
     n_bursts: int = 1
-    recording_strength: float = 0.8
+    recording_strength: float = 0.5
 
 
 """TODO: make different configs for bc and mi training"""
 class BaseConfig(BaseModel):
     # path config
-    root_path: str = ROOT_PATH
-    data_path: str = ROOT_PATH / "datasets"
-    mad_base_path: str = ROOT_PATH / "datasets" / "MyoArmbandDataset"
-    mad_data_path: str = mad_base_path / "PreTrainingDataset"
-    models_path: str = ROOT_PATH / "models"
-    rollout_data_path: str = ROOT_PATH / "datasets" / "rollouts"
+    root_path: PosixPath = ROOT_PATH
+    data_path: PosixPath = ROOT_PATH / "datasets"
+    mad_base_path: PosixPath = ROOT_PATH / "datasets" / "MyoArmbandDataset"
+    mad_data_path: PosixPath = mad_base_path / "PreTrainingDataset"
+    models_path: PosixPath = ROOT_PATH / "models"
+    rollout_data_path: PosixPath = ROOT_PATH / "datasets" / "rollouts"
     
     # wandb
     use_wandb: bool = True
@@ -85,10 +112,10 @@ class BaseConfig(BaseModel):
     feature_size: int = 32 # could be read from env
     n_channels: int = 8
     window_size: int = 200
-    n_steps_rollout: int = 10_000
-    random_pertube_prob: int = 0.5
+    n_steps_rollout: int = 200#10_000
+    random_pertube_prob: float = 0.5
     action_noise: float = 0.3
-    num_augmentation: int = 10000 # for pretraining
+    num_augmentation: int = 1_000 # for pretraining
     window_increment: int = 100 # for pretraining
     
     # supervised learning config
@@ -96,7 +123,7 @@ class BaseConfig(BaseModel):
     train_ratio: float = 0.8
     batch_size: int = 128
     num_workers: int = 7
-    epochs: int = 50
+    epochs: int = 1#50
     lr: float = 1e-4
     gradient_clip_val: float = 2.
     noise: float = 0.0
@@ -106,3 +133,4 @@ class BaseConfig(BaseModel):
     teacher: TeacherConfig = TeacherConfig()
     encoder: EncoderConfig = EncoderConfig()
     simulator: SimulatorConfig = SimulatorConfig()
+    offline_rl: OfflineRLConfig = OfflineRLConfig()

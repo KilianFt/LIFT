@@ -1,10 +1,11 @@
 import time
 
 import torch
+import wandb
 
 from tensordict import TensorDict
 from torchrl.objectives.cql import CQLLoss
-from torchrl.collectors import SyncDataCollector, RandomPolicy
+from torchrl.collectors import SyncDataCollector
 from torchrl.envs.utils import ExplorationType, set_exploration_type
 from torchrl.data import ReplayBuffer, LazyTensorStorage, SliceSampler
 
@@ -31,11 +32,14 @@ def record_buffer(env, policy):
 
 
 class CQL(AlgoBase):
-    def __init__(self, config, replay_buffer, eval_env):
+    def __init__(self, config, replay_buffer, eval_env, encoder=None):
         super().__init__(config, eval_env, eval_env)
 
-        # TODO combine with make_replay_buffer
-        self.replay_buffer = replay_buffer#record_buffer(train_env, policy)
+        self.replay_buffer = replay_buffer
+
+        # if encoder is not None:
+        #     # replace policy with encoder
+
 
     def _init_loss_module(self):
         self.loss_module = CQLLoss(
@@ -48,7 +52,7 @@ class CQL(AlgoBase):
             action_spec=self.eval_env.action_spec,
         )
 
-    def train(self, logger=None):
+    def train(self, logger=None, use_wandb=False):
         # TODO make param
         num_updates = 10_000
         for train_step in range(num_updates):
@@ -104,6 +108,9 @@ class CQL(AlgoBase):
                     print("mean reward", eval_reward)
             if logger is not None:
                 log_metrics(logger, metrics_to_log, train_step)
+
+            if use_wandb:
+                wandb.log(metrics_to_log)
 
 
 if __name__ == '__main__':

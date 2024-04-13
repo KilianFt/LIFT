@@ -91,14 +91,14 @@ def train(data, sim: WindowSimulator, model, logger, config: BaseConfig):
 
 
 def data_to_replay_buffer(data, config):
-    batch_size = 64 # TODO config
+    batch_size = config.offline_rl.batch_size
     n_samples = data['act'].shape[0]
 
     rb = ReplayBuffer(
-        storage=LazyTensorStorage(50_000),
-        sampler=SliceSampler(num_slices=8, traj_key=("collector", "traj_ids"),
+        storage=LazyTensorStorage(config.offline_rl.replay_buffer_size),
+        sampler=SliceSampler(num_slices=config.offline_rl.num_slices, traj_key=("collector", "traj_ids"),
                             truncated_key=None, strict_length=False),
-                            batch_size=64)
+                            batch_size=batch_size)
     
     # TODO use EMG features
     obs = torch.tensor(data['obs']['observation'], dtype=torch.float32)
@@ -119,7 +119,7 @@ def data_to_replay_buffer(data, config):
                 # ("next", "episode_reward"): torch.zeros(batch_size, 1),
                 ("next", "is_init"): torch.zeros(batch_size, 1).type(torch.bool),
                 ("next", "observation"): next_obs[s_idx:e_idx],
-                ("next", "reward"): torch.tensor(data['rwd'][s_idx:e_idx], dtype=torch.float32).unsqueeze(1),
+                ("next", "reward"): torch.tensor(data['align_reward'][s_idx:e_idx], dtype=torch.float32).unsqueeze(1),
                 ("next", "terminated"): torch.zeros(batch_size, 1).type(torch.bool),
                 ("next", "truncated"): torch.zeros(batch_size, 1).type(torch.bool),
             },
@@ -130,11 +130,23 @@ def data_to_replay_buffer(data, config):
     return rb
 
 
-def train_offline_rl(data, teacher, sim, encoder, logger, config: BaseConfig):
-    # create torchrl replay buffer
-    # TODO add different rewards like mse, kl etc
+def get_align_reward(data, sim, teacher, encoder):
+    obs = torch.tensor(data['obs']['observation'], dtype=torch.float32)
 
+    with torch.no_grad():
+        _, _, teacher_action = teacher.model.policy(obs)
+    emg_obs = sim(teacher_action)
+    encoder_action = encoder.sample(emg_obs)
+
+    # TODO add KL divergence
+    align_reward = (teacher_action[:,:3] - encoder_action).pow(2).mean(dim=1)
+    return align_reward
+
+
+def train_offline_rl(data, teacher, sim, encoder, config: BaseConfig):
+    data['align_reward'] = get_align_reward(data, sim, teacher, encoder)
     replay_buffer = data_to_replay_buffer(data, config)
+
     # eval_env = parallel_env_maker(
     #     config.teacher.env_name,
     #     cat_obs=config.teacher.env_cat_obs,
@@ -143,17 +155,17 @@ def train_offline_rl(data, teacher, sim, encoder, logger, config: BaseConfig):
     #     device="cpu",
     # )
     eval_env = apply_env_transforms(gym_env_maker(config.teacher.env_name))
-
     t_emg = EMGTransform(teacher, sim, in_keys=["observation"], out_keys=["emg"])
     eval_env.append_transform(t_emg)
     check_env_specs(eval_env)
-    # FIXME don't use teacher config here
+
     # TODO init CQL with encoder
-    cql = CQL(config.teacher, replay_buffer, eval_env)
+    # TODO make sure CQL uses emg observations
+    cql = CQL(config.offline_rl, replay_buffer, eval_env, encoder=encoder)
 
-    cql.train()
+    cql.train(use_wandb=config.use_wandb)
 
-    # return trained encoder
+    return cql.model.policy
 
 
 def main():
@@ -207,7 +219,7 @@ def main():
 
     torch.save(trainer, config.models_path / 'encoder.pt')
 
-    train_offline_rl(data, teacher, sim, trainer.encoder, logger, config)
+    train_offline_rl(data, teacher, sim, trainer.encoder, config)
 
     validate(env, teacher, sim, trainer.encoder, logger)
 

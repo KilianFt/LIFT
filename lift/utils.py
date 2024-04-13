@@ -7,11 +7,10 @@ def cross_entropy(p, q, eps=1e-6):
     ce = -torch.sum(p * logq, dim=-1)
     return ce
 
-""" TODO fixme, this is not working as expected because of x[0] """
 def hash_config(config):
     print("Hashing hyperparameters")
-    values = sorted(config, key=lambda x: x[0])
-    config_hash = hashlib.sha256(pickle.dumps(values)).hexdigest()
+    conf_dict = config.model_dump()
+    config_hash = hashlib.sha256(pickle.dumps(conf_dict)).hexdigest()
     return config_hash
 
 """ convert labels (0 to 6) to actions """
