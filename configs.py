@@ -70,9 +70,13 @@ class OfflineRLConfig(BaseModel):
     scale_lb: float = 0.1
     device: str = "cpu"
 
+    # train
+    num_updates = 10_000
+
     # eval
-    eval_iter: int = 5000
-    
+    eval_iter: int = 1000
+    eval_rollout_steps: int = 100
+
 
 class EncoderConfig(BaseModel):
     h_dim: int = 128
@@ -87,7 +91,7 @@ class EncoderConfig(BaseModel):
 
 class SimulatorConfig(BaseModel):
     n_bursts: int = 1
-    recording_strength: float = 0.5
+    recording_strength: float = 0.8 # 0.5
 
 
 """TODO: make different configs for bc and mi training"""

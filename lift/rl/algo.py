@@ -18,11 +18,12 @@ from lift.rl.utils import (
 
 
 class AlgoBase(ABC):
-    def __init__(self, config, train_env, eval_env):
+    def __init__(self, config, train_env, eval_env, in_keys=["observation"]):
         self.config = config
         self.train_env = train_env
         self.eval_env = eval_env
         self.device = torch.device(config.device)
+        self.in_keys = in_keys
 
         self._init_policy()
         self._init_loss_module()
@@ -62,9 +63,11 @@ class AlgoBase(ABC):
 
     def _init_policy(self):
         # Define Actor Network
-        in_keys = ["observation"]
+        in_keys = self.in_keys#["observation"]
         action_spec = self.train_env.action_spec
-        obs_size = self.train_env.observation_spec["observation"].shape[-1]
+        obs_size = 0
+        for key in self.in_keys:
+            obs_size += self.train_env.observation_spec[key].shape[-1]
         action_size = action_spec.shape[-1]
         if self.train_env.batch_size:
             action_spec = action_spec[(0,) * len(self.train_env.batch_size)]

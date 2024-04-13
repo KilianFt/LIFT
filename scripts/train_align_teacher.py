@@ -111,6 +111,7 @@ def data_to_replay_buffer(data, config):
         td_data = TensorDict(
             {
                 "observation": obs[s_idx:e_idx],
+                "emg": data['obs']['emg'][s_idx:e_idx],
                 "action": torch.tensor(data['act'][s_idx:e_idx], dtype=torch.float32),
                 # "episode_reward": torch.zeros(batch_size), 
                 "is_init": torch.zeros(batch_size, 1).type(torch.bool),
@@ -119,6 +120,7 @@ def data_to_replay_buffer(data, config):
                 # ("next", "episode_reward"): torch.zeros(batch_size, 1),
                 ("next", "is_init"): torch.zeros(batch_size, 1).type(torch.bool),
                 ("next", "observation"): next_obs[s_idx:e_idx],
+                ("next", "emg"): data['next_obs']['emg'][s_idx:e_idx],
                 ("next", "reward"): torch.tensor(data['align_reward'][s_idx:e_idx], dtype=torch.float32).unsqueeze(1),
                 ("next", "terminated"): torch.zeros(batch_size, 1).type(torch.bool),
                 ("next", "truncated"): torch.zeros(batch_size, 1).type(torch.bool),
@@ -130,13 +132,9 @@ def data_to_replay_buffer(data, config):
     return rb
 
 
-def get_align_reward(data, sim, teacher, encoder):
-    obs = torch.tensor(data['obs']['observation'], dtype=torch.float32)
+def get_align_reward(data, teacher_action, encoder):
 
-    with torch.no_grad():
-        _, _, teacher_action = teacher.model.policy(obs)
-    emg_obs = sim(teacher_action)
-    encoder_action = encoder.sample(emg_obs)
+    encoder_action = encoder.sample(data['obs']['emg'])
 
     # TODO add KL divergence
     align_reward = (teacher_action[:,:3] - encoder_action).pow(2).mean(dim=1)
@@ -144,9 +142,20 @@ def get_align_reward(data, sim, teacher, encoder):
 
 
 def train_offline_rl(data, teacher, sim, encoder, config: BaseConfig):
-    data['align_reward'] = get_align_reward(data, sim, teacher, encoder)
+    # get emg obs
+    obs = torch.tensor(data['obs']['observation'], dtype=torch.float32)
+    next_obs = torch.tensor(data['next_obs']['observation'], dtype=torch.float32)
+    with torch.no_grad():
+        _, _, teacher_action = teacher.model.policy(obs)
+        _, _, teacher_action_next = teacher.model.policy(next_obs)
+    data['obs']['emg'] = sim(teacher_action)
+    data['next_obs']['emg'] = sim(teacher_action_next)
+
+    # reward and replay buffer
+    data['align_reward'] = get_align_reward(data, teacher_action, encoder)
     replay_buffer = data_to_replay_buffer(data, config)
 
+    # eval env
     # eval_env = parallel_env_maker(
     #     config.teacher.env_name,
     #     cat_obs=config.teacher.env_cat_obs,
@@ -159,10 +168,7 @@ def train_offline_rl(data, teacher, sim, encoder, config: BaseConfig):
     eval_env.append_transform(t_emg)
     check_env_specs(eval_env)
 
-    # TODO init CQL with encoder
-    # TODO make sure CQL uses emg observations
     cql = CQL(config.offline_rl, replay_buffer, eval_env, encoder=encoder)
-
     cql.train(use_wandb=config.use_wandb)
 
     return cql.model.policy

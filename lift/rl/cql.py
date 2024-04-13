@@ -1,9 +1,12 @@
 import time
 
-import torch
 import wandb
+import torch
+import torch.nn as nn
 
 from tensordict import TensorDict
+from tensordict.nn import TensorDictModule
+from tensordict.nn.distributions import NormalParamExtractor
 from torchrl.objectives.cql import CQLLoss
 from torchrl.collectors import SyncDataCollector
 from torchrl.envs.utils import ExplorationType, set_exploration_type
@@ -33,13 +36,27 @@ def record_buffer(env, policy):
 
 class CQL(AlgoBase):
     def __init__(self, config, replay_buffer, eval_env, encoder=None):
-        super().__init__(config, eval_env, eval_env)
+        in_keys = ["emg"]
+        super().__init__(config, eval_env, eval_env, in_keys=in_keys)
 
         self.replay_buffer = replay_buffer
 
-        # if encoder is not None:
-        #     # replace policy with encoder
-
+        if encoder is not None:
+            # replace policy with encoder
+            actor_extractor = NormalParamExtractor(
+                scale_mapping=f"biased_softplus_{config.default_policy_scale}",
+                scale_lb=config.scale_lb,
+            )
+            actor_net = nn.Sequential(encoder.base.mlp, actor_extractor)
+            encoder_actor_module = TensorDictModule(
+                actor_net,
+                in_keys=in_keys,
+                out_keys=[
+                    "loc",
+                    "scale",
+                ],
+            )
+            self.model.policy.module[0].module = encoder_actor_module
 
     def _init_loss_module(self):
         self.loss_module = CQLLoss(
@@ -53,9 +70,7 @@ class CQL(AlgoBase):
         )
 
     def train(self, logger=None, use_wandb=False):
-        # TODO make param
-        num_updates = 10_000
-        for train_step in range(num_updates):
+        for train_step in range(self.config.num_updates):
             batch = self.replay_buffer.sample()
             loss = self.loss_module(batch)
             # entropy
@@ -88,15 +103,12 @@ class CQL(AlgoBase):
             metrics_to_log = loss.to_dict()
 
             # Evaluation
-            # TODO make param
-            eval_iter = 99
-            if train_step % eval_iter == 0:
+            if train_step % self.config.eval_iter == 0:
                 # TODO make param
-                eval_rollout_steps = 100
                 with set_exploration_type(ExplorationType.MODE), torch.no_grad():
                     eval_start = time.time()
                     eval_rollout = self.eval_env.rollout(
-                        eval_rollout_steps,
+                        self.config.eval_rollout_steps,
                         self.model["policy"],
                         auto_cast_to_device=True,
                         break_when_any_done=True,
