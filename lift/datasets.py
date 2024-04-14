@@ -180,9 +180,9 @@ def compute_features(windows, feature_list=['MAV', 'SSC', 'ZC', 'WL']):
 
 
 def get_raw_mad_dataset(eval_path, window_length, overlap, skip_person=None):
-    person_folders = os.listdir(eval_path)
+    person_folders = [p for p in os.listdir(eval_path) if p != ".DS_Store"]
+    first_folder = person_folders[0]
 
-    first_folder = os.listdir(eval_path)[0]
     keys = next(os.walk((eval_path + first_folder)))[1]
 
     number_of_classes = 7
