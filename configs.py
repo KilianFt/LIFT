@@ -71,7 +71,7 @@ class OfflineRLConfig(BaseModel):
     device: str = "cpu"
 
     # train
-    num_updates = 10_000
+    num_updates: int = 10_000
 
     # eval
     eval_iter: int = 1000
@@ -116,7 +116,7 @@ class BaseConfig(BaseModel):
     feature_size: int = 32 # could be read from env
     n_channels: int = 8
     window_size: int = 200
-    n_steps_rollout: int = 200#10_000
+    n_steps_rollout: int = 10_000
     random_pertube_prob: float = 0.5
     action_noise: float = 0.3
     num_augmentation: int = 1_000 # for pretraining
@@ -127,7 +127,7 @@ class BaseConfig(BaseModel):
     train_ratio: float = 0.8
     batch_size: int = 128
     num_workers: int = 7
-    epochs: int = 1#50
+    epochs: int = 50
     lr: float = 1e-4
     gradient_clip_val: float = 2.
     noise: float = 0.0
