@@ -298,8 +298,11 @@ class EMGAgent:
     def __init__(self, policy: TanhGaussianEncoder | GaussianEncoder):
         self.policy = policy
 
-    def sample_action(self, observation, sample_mean=False) -> float:
-        emg_obs = torch.tensor(observation['emg_observation'], dtype=torch.float32)
+    def sample_action(self, observation: dict, sample_mean: bool = False) -> float:
+        emg_obs = observation["emg_observation"]
+        if not isinstance(emg_obs, torch.Tensor):
+            emg_obs = torch.tensor(emg_obs, dtype=torch.float32)
+        
         with torch.no_grad():
             dist = self.policy.get_dist(emg_obs)
             if sample_mean:
