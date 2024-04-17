@@ -161,8 +161,8 @@ def mad_augmentation(emg, actions, num_augmentation):
         is_pos = 1 * (sample_actions[:, i] > 0).view(-1, 1, 1)
         sample_emg += (
             is_pos * abs_action * pos_component + \
-            (1 - is_pos) * abs_action * neg_component + \
-            sample_baseline
+            (1 - is_pos) * abs_action * neg_component # + \
+            # sample_baseline
         )
 
     sample_emg = sample_emg + sample_baseline
@@ -264,7 +264,8 @@ def maybe_download_mad_dataset(mad_base_dir):
     os.system(f'rm {mad_base_dir}/.lock')
 
 
-def get_mad_windows_dataset(mad_base_dir, window_length, window_increment, desired_labels = None, return_tensors = False, skip_person = None):
+def get_mad_windows_dataset(mad_base_dir, window_length, window_increment, desired_labels = None,
+                            return_tensors = False, skip_person = None, emg_min = -128, emg_max = 127):
     maybe_download_mad_dataset(mad_base_dir)
 
     train_path = mad_base_dir + '/PreTrainingDataset/'
@@ -290,29 +291,29 @@ def get_mad_windows_dataset(mad_base_dir, window_length, window_increment, desir
 
     # filter by desired_labels
     if desired_labels is None:
-        if return_tensors:
-            return torch.tensor(mad_all_windows, dtype=torch.float32), torch.tensor(mad_all_labels)
+        mad_windows, mad_labels = mad_all_windows, mad_all_labels
 
-        return mad_all_windows, mad_all_labels
+    else:
+        mad_windows = None
+        mad_labels = None
+        # TODO use desired_labels
+        for mad_p_examples, mad_p_labels in zip(mad_all_windows, mad_all_labels):
+            label_map = (mad_p_labels >= 0) & (mad_p_labels <= 6)
+            mad_subject_windows = mad_p_examples[label_map]
+            subject_labels = mad_p_labels[label_map]
 
-    mad_windows = None
-    mad_labels = None
-    # TODO use desired_labels
-    for mad_p_examples, mad_p_labels in zip(mad_all_windows, mad_all_labels):
-        label_map = (mad_p_labels >= 0) & (mad_p_labels <= 6)
-        mad_subject_windows = mad_p_examples[label_map]
-        subject_labels = mad_p_labels[label_map]
+            if mad_windows is None:
+                mad_windows = mad_subject_windows
+                mad_labels = subject_labels
+            else:
+                mad_windows = np.concatenate((mad_windows, mad_subject_windows))
+                mad_labels = np.concatenate((mad_labels, subject_labels))
 
-        if mad_windows is None:
-            mad_windows = mad_subject_windows
-            mad_labels = subject_labels
-        else:
-            mad_windows = np.concatenate((mad_windows, mad_subject_windows))
-            mad_labels = np.concatenate((mad_labels, subject_labels))
+    mad_windows = np.interp(mad_windows, (emg_min, emg_max), (-1, 1))
 
     print("MAD dataset loaded")
     if return_tensors:
-        return torch.tensor(mad_windows, dtype=torch.float32), torch.tensor(mad_labels)
+        mad_windows, mad_labels = torch.tensor(mad_windows, dtype=torch.float32), torch.tensor(mad_labels)
 
     return mad_windows, mad_labels
 

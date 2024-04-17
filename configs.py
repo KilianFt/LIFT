@@ -91,7 +91,7 @@ class EncoderConfig(BaseModel):
 
 class SimulatorConfig(BaseModel):
     n_bursts: int = 1
-    recording_strength: float = 0.8 # 0.5
+    recording_strength: float = 0.8
 
 
 """TODO: make different configs for bc and mi training"""
