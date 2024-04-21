@@ -27,11 +27,11 @@ def maybe_rollout(env: NpGymEnv, teacher, config: BaseConfig, use_saved=True):
         data = rollout(
             env,
             teacher,
-            n_steps=config.n_steps_rollout,
+            n_steps=config.mi.n_steps_rollout,
             terminate_on_done=False,
             reset_on_done=True,
-            random_pertube_prob=config.random_pertube_prob,
-            action_noise=config.action_noise,
+            random_pertube_prob=config.mi.random_pertube_prob,
+            action_noise=config.mi.action_noise,
         )
         rollout_file.parent.mkdir(exist_ok=True, parents=True)
         with open(rollout_file, "wb") as f:
@@ -65,13 +65,13 @@ def train(data, sim: WindowSimulator, model, logger, config: BaseConfig):
     }
     train_dataloader, val_dataloader = get_dataloaders(
         data_dict=sl_data_dict,
-        train_ratio=config.train_ratio,
-        batch_size=config.batch_size,
+        train_ratio=config.mi.train_ratio,
+        batch_size=config.mi.batch_size,
         num_workers=config.num_workers,
     )
 
     trainer = L.Trainer(
-        max_epochs=config.epochs, 
+        max_epochs=config.mi.epochs, 
         log_every_n_steps=1, 
         check_val_every_n_epoch=1,
         enable_checkpointing=False, 
@@ -91,6 +91,7 @@ def main():
     if config.use_wandb:
         _ = wandb.init(project='lift', tags='align_teacher')
         logger = WandbLogger()
+        wandb.config.update(config.model_dump())
     else:
         logger = None
     

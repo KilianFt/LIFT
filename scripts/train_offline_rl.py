@@ -104,6 +104,7 @@ def main():
     L.seed_everything(config.seed)
     if config.use_wandb:
         _ = wandb.init(project='lift', tags='align_teacher')
+        wandb.config.update(config.model_dump())
 
     teacher = load_teacher(config)
     sim = WindowSimulator(

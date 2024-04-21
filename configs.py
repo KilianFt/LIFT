@@ -50,7 +50,7 @@ class TeacherConfig(BaseModel):
 class OfflineRLConfig(BaseModel):
     # replay
     replay_buffer_size: int = 1000000
-    batch_size: int = 64 #256
+    batch_size: int = 64
     num_slices: int = 8
 
     # optim 
@@ -86,15 +86,35 @@ class EncoderConfig(BaseModel):
     kl_approx_method: str = "logp" # choices=[logp, abs, mse]
     hidden_size: int = 256
     n_layers: int = 4
-    dropout: float = 0.1
+    dropout: float = 0.3
 
 
 class SimulatorConfig(BaseModel):
     n_bursts: int = 1
-    recording_strength: float = 0.8
+    recording_strength: float = 0.5
 
 
-"""TODO: make different configs for bc and mi training"""
+class PretrainConfig(BaseModel):
+    epochs: int = 50
+    num_augmentation: int = 20_000
+    augmentation_distribution: str = "normal" # choices=["uniform", "normal"]
+    train_ratio: float = 0.8
+    batch_size: int = 128
+    window_increment: int = 100
+    lr: float = 1e-4
+
+
+class MIConfig(BaseModel):
+    train_ratio: float = 0.8
+    batch_size: int = 128
+    epochs: int = 50
+    lr: float = 1e-4
+    noise: float = 0.0
+    n_steps_rollout: int = 10_000
+    random_pertube_prob: float = 0.5
+    action_noise: float = 0.3
+
+
 class BaseConfig(BaseModel):
     # path config
     root_path: PosixPath = ROOT_PATH
@@ -109,32 +129,21 @@ class BaseConfig(BaseModel):
     project_name: str = "lift"
     wandb_mode: str = "online"
 
-    seed: int = 42
+    seed: int = 100#42
     num_workers: int = 7
     teacher_train_timesteps: int = 150_000
     action_size: int = 3 # could be read from env
     feature_size: int = 32 # could be read from env
     n_channels: int = 8
     window_size: int = 200
-    n_steps_rollout: int = 10_000
-    random_pertube_prob: float = 0.5
-    action_noise: float = 0.3
-    num_augmentation: int = 1_000 # for pretraining
-    window_increment: int = 100 # for pretraining
-    
-    # supervised learning config
-    # dropout: float = .1
-    train_ratio: float = 0.8
-    batch_size: int = 128
-    num_workers: int = 7
-    epochs: int = 50
-    lr: float = 1e-4
+
     gradient_clip_val: float = 2.
-    noise: float = 0.0
     checkpoint_frequency: int = 1
     save_top_k: int = -1 # set to -1 to save all checkpoints
     
     teacher: TeacherConfig = TeacherConfig()
     encoder: EncoderConfig = EncoderConfig()
     simulator: SimulatorConfig = SimulatorConfig()
+    pretrain: PretrainConfig = PretrainConfig()
+    mi: MIConfig = MIConfig()
     offline_rl: OfflineRLConfig = OfflineRLConfig()

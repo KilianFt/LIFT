@@ -95,7 +95,7 @@ class BCTrainer(L.LightningModule):
     """Behavior cloning trainer"""
     def __init__(self, config: BaseConfig, env: NpGymEnv):
         super().__init__()
-        self.lr = config.lr
+        self.lr = config.pretrain.lr
         self.x_dim = config.feature_size
         self.a_dim = config.action_size
         

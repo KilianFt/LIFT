@@ -30,7 +30,7 @@ def validate(env, teacher, sim, encoder, logger):
     std_rwd = data["rwd"].std()
     print(f"encoder reward mean: {mean_rwd:.4f}, std: {std_rwd:.4f}")
     if logger is not None:
-        logger.log_metrics({"encoder reward": mean_rwd})
+        logger.log_metrics({"encoder_reward": mean_rwd})
     return data
 
 def train(emg_features, actions, model, logger, config: BaseConfig):
@@ -41,13 +41,13 @@ def train(emg_features, actions, model, logger, config: BaseConfig):
     }
     train_dataloader, val_dataloader = get_dataloaders(
         data_dict=sl_data_dict,
-        train_ratio=config.train_ratio,
-        batch_size=config.batch_size,
+        train_ratio=config.pretrain.train_ratio,
+        batch_size=config.pretrain.batch_size,
         num_workers=config.num_workers,
     )
 
     trainer = L.Trainer(
-        max_epochs=config.epochs, 
+        max_epochs=config.pretrain.epochs, 
         log_every_n_steps=1, 
         check_val_every_n_epoch=1,
         enable_checkpointing=False, 
@@ -68,7 +68,7 @@ def load_fake_data(config):
     actions_dof = torch.cat([a.view(1, -1).repeat_interleave(num_samples, 0) for a in data["action"]], dim=0)
     
     # data augmentation
-    emg_aug, actions_aug = mad_augmentation(data["emg"], data["action"], config.num_augmentation)
+    emg_aug, actions_aug = mad_augmentation(data["emg"], data["action"], config.pretrain.num_augmentation)
     emg = torch.cat([emg_dof, emg_aug], dim=0)
     actions = torch.cat([actions_dof, actions_aug], dim=0)
 
@@ -82,7 +82,7 @@ def load_data(config, load_fake=False):
 
     mad_emg, mad_labels = get_mad_windows_dataset(config.mad_base_path.as_posix(),
                                                   config.window_size,
-                                                  config.window_increment,
+                                                  config.pretrain.window_increment,
                                                   desired_labels=[0, 1, 2, 3, 4, 5, 6],
                                                   return_tensors=True,
                                                   skip_person='Female0')
@@ -92,9 +92,10 @@ def load_data(config, load_fake=False):
     mad_features = compute_features(mad_emg)
     mad_actions = mad_labels_to_actions(mad_labels, recording_strength=config.simulator.recording_strength)
 
-    if config.num_augmentation > 0:
+    if config.pretrain.num_augmentation > 0:
         actions_list = mad_labels_to_actions(label_list, recording_strength=config.simulator.recording_strength)
-        sample_emg, sample_actions = mad_augmentation(windows_list, actions_list, config.num_augmentation)
+        sample_emg, sample_actions = mad_augmentation(windows_list, actions_list, config.pretrain.num_augmentation,
+                                                      augmentation_distribution=config.pretrain.augmentation_distribution)
         sample_features = compute_features(sample_emg)
 
         features = torch.cat([mad_features, sample_features], dim=0)
@@ -110,6 +111,7 @@ def main():
     if config.use_wandb:
         _ = wandb.init(project='lift', tags='align_teacher')
         logger = WandbLogger()
+        wandb.config.update(config.model_dump())
     else:
         logger = None
 

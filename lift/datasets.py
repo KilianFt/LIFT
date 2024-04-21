@@ -116,7 +116,7 @@ def get_mad_windows(data_path, window_size, window_increment, emg_min = -128, em
 
     return flat_windows, labels
 
-def mad_augmentation(emg, actions, num_augmentation):
+def mad_augmentation(emg, actions, num_augmentation, augmentation_distribution='uniform'):
     """Discrete emg data augmentation using random interpolation
 
     Args:
@@ -143,7 +143,13 @@ def mad_augmentation(emg, actions, num_augmentation):
     action_neg = torch.stack([actions[i] for i in idx_neg])
     
     act_dim = action_baseline.shape[-1]
-    sample_actions = torch.rand(num_augmentation, act_dim) * 2 - 1
+
+    if augmentation_distribution == 'uniform':
+        sample_actions = torch.rand(num_augmentation, act_dim) * 2 - 1
+    elif augmentation_distribution == 'normal':
+        sample_actions = torch.normal(0, .5, (num_augmentation, act_dim)).clip(-1, 1)
+    else:
+        raise ValueError("augmentation_distribution must be 'uniform' or 'normal'")
     
     # init emg samples with baseline
     idx_sample_baseline = torch.randint(len(emg_baseline), (num_augmentation,))
