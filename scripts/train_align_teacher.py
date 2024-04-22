@@ -90,6 +90,7 @@ def main():
     L.seed_everything(config.seed)
     if config.use_wandb:
         _ = wandb.init(project='lift', tags='align_teacher')
+        config = BaseConfig(**wandb.config)
         logger = WandbLogger()
         wandb.config.update(config.model_dump())
     else:

@@ -100,10 +100,11 @@ def train_offline_rl(data, teacher, sim, encoder, config: BaseConfig):
 
 
 def main():
-    config = BaseConfig()
+    config = BaseConfig(**wandb.config)
     L.seed_everything(config.seed)
     if config.use_wandb:
         _ = wandb.init(project='lift', tags='align_teacher')
+        config = BaseConfig(**wandb.config)
         wandb.config.update(config.model_dump())
 
     teacher = load_teacher(config)
