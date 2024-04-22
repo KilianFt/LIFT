@@ -4,7 +4,6 @@ import torch
 import lightning as L
 from pytorch_lightning.loggers import WandbLogger
 
-
 from configs import BaseConfig
 from lift.environments.gym_envs import NpGymEnv
 from lift.environments.emg_envs import EMGEnv
@@ -52,7 +51,7 @@ def validate(env, teacher, sim, encoder, logger):
     std_rwd = data["rwd"].std()
     print(f"encoder reward mean: {mean_rwd:.4f}, std: {std_rwd:.4f}")
     if logger is not None:
-        logger.log_metrics({"encoder reward": mean_rwd})
+        logger.log_metrics({"encoder_reward": mean_rwd})
     return data
 
 def train(data, sim: WindowSimulator, model, logger, config: BaseConfig):
