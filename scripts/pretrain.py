@@ -22,9 +22,10 @@ def validate(env, teacher, sim, encoder, logger):
     data = rollout(
         emg_env, 
         agent, 
-        n_steps=1000, 
+        n_steps=5000,
         terminate_on_done=False,
         reset_on_done=True,
+        sample_mean=True,
     )
     mean_rwd = data["rwd"].mean()
     std_rwd = data["rwd"].std()
@@ -124,7 +125,8 @@ def main():
         action_size=config.action_size, 
         num_bursts=config.simulator.n_bursts, 
         num_channels=config.n_channels,
-        window_size=config.window_size, 
+        window_size=config.window_size,
+        recording_strength=config.simulator.recording_strength,
         return_features=True,
     )
     sim.fit_params_to_mad_sample(

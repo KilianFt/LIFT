@@ -91,28 +91,27 @@ class EncoderConfig(BaseModel):
 
 class SimulatorConfig(BaseModel):
     n_bursts: int = 1
-    recording_strength: float = 0.5
+    recording_strength: float = 0.8
 
 
 class PretrainConfig(BaseModel):
-    epochs: int = 50
-    num_augmentation: int = 20_000
-    augmentation_distribution: str = "normal" # choices=["uniform", "normal"]
+    epochs: int = 90
+    num_augmentation: int = 10_000
+    augmentation_distribution: str = "uniform" # choices=["uniform", "normal"]
     train_ratio: float = 0.8
     batch_size: int = 128
-    window_increment: int = 100
-    lr: float = 1e-4
+    window_increment: int = 150
+    lr: float = 1.5e-5
 
 
 class MIConfig(BaseModel):
     train_ratio: float = 0.8
     batch_size: int = 128
-    epochs: int = 50
+    epochs: int = 20
     lr: float = 1e-4
-    noise: float = 0.0
     n_steps_rollout: int = 10_000
-    random_pertube_prob: float = 0.5
-    action_noise: float = 0.3
+    random_pertube_prob: float = 0.0
+    action_noise: float = 0.0
 
 
 class BaseConfig(BaseModel):

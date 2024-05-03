@@ -7,6 +7,7 @@ from pytorch_lightning.loggers import WandbLogger
 from configs import BaseConfig
 from lift.environments.gym_envs import NpGymEnv
 from lift.environments.emg_envs import EMGEnv
+from lift.environments.user_envs import UserEnv
 from lift.environments.simulator import WindowSimulator
 from lift.environments.rollout import rollout
 
@@ -15,7 +16,7 @@ from lift.datasets import get_dataloaders
 from lift.controllers import MITrainer, EMGAgent
 
 
-def maybe_rollout(env: NpGymEnv, teacher, config: BaseConfig, use_saved=True):
+def maybe_rollout(env: UserEnv, teacher, config: BaseConfig, use_saved=True):
     rollout_file = config.rollout_data_path / f"data.pkl"
     if use_saved and rollout_file.exists():
         print(f"\nload rollout data from file: {rollout_file}")
@@ -55,6 +56,7 @@ def validate(env, teacher, sim, encoder, logger):
     return data
 
 def train(data, sim: WindowSimulator, model, logger, config: BaseConfig):
+    # TODO this should be emg from user env
     emg_features = sim(data["act"])
 
     sl_data_dict = {
@@ -97,35 +99,39 @@ def main():
     
     teacher = load_teacher(config)
     sim = WindowSimulator(
-        action_size=config.action_size, 
-        num_bursts=config.simulator.n_bursts, 
+        action_size=config.action_size,
+        num_bursts=config.simulator.n_bursts,
         num_channels=config.n_channels,
-        window_size=config.window_size, 
+        window_size=config.window_size,
+        recording_strength=config.simulator.recording_strength,
         return_features=True,
     )
     sim.fit_params_to_mad_sample(
         (config.mad_data_path / "Female0"/ "training0").as_posix()
     )
+
     env = NpGymEnv(
         "FetchReachDense-v2", 
         cat_obs=True, 
         cat_keys=config.teacher.env_cat_keys,
     )
-    
-    # collect teacher data
-    # TODO use teacher env here
-    data = maybe_rollout(env, teacher, config, use_saved=False)
-    mean_rwd = data["rwd"].mean()
-    print("teacher reward", mean_rwd)
-    if logger is not None:
-        logger.log_metrics({"teacher reward": mean_rwd})
-    
+
     # load bc encoder
     bc_trainer = torch.load(config.models_path / "bc.pt")
 
     # init trainer
     trainer = MITrainer(config, env, teacher)
     trainer.encoder.load_state_dict(bc_trainer.encoder.state_dict())
+
+    emg_policy = EMGAgent(trainer.encoder)
+    user_env = UserEnv(env, emg_policy, sim)
+
+    # collect user data
+    data = maybe_rollout(user_env, teacher, config, use_saved=False)
+    mean_rwd = data["rwd"].mean()
+    print("teacher_reward", mean_rwd)
+    if logger is not None:
+        logger.log_metrics({"teacher_reward": mean_rwd})
 
     # test once before train
     validate(env, teacher, sim, trainer.encoder, logger)
@@ -135,7 +141,7 @@ def main():
     # test once after train
     validate(env, teacher, sim, trainer.encoder, logger)
 
-    torch.save(trainer, config.models_path / 'encoder.pt')
+    torch.save(trainer, config.models_path / 'mi.pt')
 
 
 if __name__ == "__main__":

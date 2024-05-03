@@ -38,10 +38,13 @@ def rollout(
         if len(act.shape) > 1:
             act = act[-1]
 
-        # randomely pertube teacher actions to obtain broader diversity in data
+        # randomly pertube teacher actions to obtain broader diversity in data
         act_env = act + np.random.randn(*act.shape) * action_noise
+
         if np.random.rand() < random_pertube_prob:
             act_env = np.random.rand(*act.shape) * 2 - 1
+
+        act_env = np.clip(act_env, -1, 1)
 
         next_obs, rwd, done, info = env.step(act_env)
 

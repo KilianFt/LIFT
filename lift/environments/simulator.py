@@ -97,7 +97,7 @@ class WindowSimulator:
             # TODO maybe warn when automatically truncating?
             actions = actions[..., :self.action_size]
 
-        actions[actions.abs() < .1] = 0 # filter low amplitude noise
+        # actions[actions.abs() < .1] = 0 # filter low amplitude noise
 
         # find scaling for each action to account for movement strength
         scaling = torch.zeros((actions.shape[0], actions.shape[1]*2))
