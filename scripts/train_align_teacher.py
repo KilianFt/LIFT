@@ -129,9 +129,9 @@ def main():
     # collect user data
     data = maybe_rollout(user_env, teacher, config, use_saved=False)
     mean_rwd = data["rwd"].mean()
-    print("teacher_reward", mean_rwd)
+    print("encoder_reward", mean_rwd)
     if logger is not None:
-        logger.log_metrics({"teacher_reward": mean_rwd})
+        logger.log_metrics({"encoder_reward": mean_rwd})
 
     # test once before train
     validate(env, teacher, sim, trainer.encoder, logger)
