@@ -149,7 +149,7 @@ class MITrainer(L.LightningModule):
     """Mutual information trainer"""
     def __init__(self, config: BaseConfig, env: NpGymEnv, teacher: SAC):
         super().__init__()
-        self.lr = config.lr
+        self.lr = config.mi.lr
         self.beta_1 = config.encoder.beta_1
         self.beta_2 = config.encoder.beta_2
         self.kl_approx_method = config.encoder.kl_approx_method

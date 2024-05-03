@@ -1,4 +1,5 @@
 import copy
+import torch
 import numpy as np
 from tqdm import tqdm
 
@@ -32,7 +33,8 @@ def rollout(
     
     bar = tqdm(range(n_steps), desc="Rollout", unit="item")
     while len(data["rwd"]) < n_steps:
-        act = agent.sample_action(obs, sample_mean=sample_mean)
+        with torch.no_grad():
+            act = agent.sample_action(obs, sample_mean=sample_mean)
         if len(act.shape) > 1:
             act = act[-1]
 
