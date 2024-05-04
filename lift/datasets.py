@@ -50,49 +50,107 @@ def get_dataloaders(data_dict, train_ratio=0.8, batch_size=32, num_workers=4):
     )
     return train_dataloader, val_dataloader
 
-def get_mad_sample(data_path, emg_min = -128, emg_max = 127, desired_labels = None):
-    emg = []
-    labels = []
-    for data_file in os.listdir(data_path):
-        if data_file.endswith(".dat"):
-            label = int(re.findall(r'\d+', data_file)[0])
-            data_read_from_file = np.fromfile((data_path + '/' + data_file), dtype=np.int16)
-            data_read_from_file = np.array(data_read_from_file, dtype=np.float32)
+def make_overlap_windows(emg: np.array, window_size: int = 200, overlap: int = 150):
+    """Make overlapping windows from streaming signals
 
-            example = None
-            emg_vector = []
-            for value in data_read_from_file:
-                emg_vector.append(value)
-                if (len(emg_vector) >= 8):
-                    if example is None:
-                        example = emg_vector
-                    else:
-                        example = np.row_stack((example, emg_vector))
-                    emg_vector = []
+    Returns:
+        windows (np.array): emg windows. size = [num_windows, num_channels, window_size]
+    """
+    append_len = window_size - overlap
+    windows = [emg[:window_size]]
+    num_windows = (len(emg) - window_size) // append_len
+    for i in range(num_windows):
+        start = (i + 1) * append_len
+        windows.append(emg[start:start+window_size])
+    windows = np.stack(windows)
+    windows = np.moveaxis(windows, -2, -1)
+    return windows
 
-            norm_emg = np.interp(example, (emg_min, emg_max), (-1, 1))
+"""TODO: verify this"""
+def compute_features(
+    windows: np.ndarray | torch.Tensor, 
+    feature_list: list = ['MAV', 'SSC', 'ZC', 'WL'],
+):
+    """Compute emg features using libemg
+    
+    Returns:
+        features (torch.tensor): 
+    """
+    if not isinstance(windows, np.ndarray):
+        windows = windows.numpy()
 
-            emg.append(norm_emg)
-            labels.append(label)
+    features = FeatureExtractor().extract_features(feature_list, windows)
+    features = np.stack(list(features.values()), axis=-1)
+    features = torch.from_numpy(features).flatten(start_dim=1).to(torch.float32)
+    return features
 
-    if desired_labels is not None:
-        # desired_labels = [0, 1, 2, 3, 4]
+"""
+mad dataset
+"""
+def maybe_download_mad_dataset(mad_base_dir):
+    if os.path.exists(mad_base_dir):
+        return
+    print("MyoArmbandDataset not found")
 
-        filtered_labels = []
-        filtered_emg = []
-        for i, label in enumerate(labels):
-            if label in desired_labels:
-                filtered_emg.append(emg[i])
-                filtered_labels.append(label)
+    if os.path.exists(mad_base_dir + '/.lock'):
+        print("Waiting for download to finish")
+        # wait for download to finish
+        while os.path.exists(mad_base_dir + '/.lock'):
+            print(".", end="")
+            time.sleep(1)
+        return
 
-        emg = filtered_emg
-        labels = filtered_labels
+    # create a lock file to prevent multiple downloads
+    os.system(f'touch {mad_base_dir}/.lock')
 
+    print("Downloading MyoArmbandDataset")
+    cmd = f'git clone https://github.com/UlysseCoteAllard/MyoArmbandDataset {mad_base_dir}'
+    subprocess.call(cmd, shell=True)
+    print("Download finished")
+
+    # remove the lock file
+    os.system(f'rm {mad_base_dir}/.lock')
+
+def load_mad_person_trial(
+    trial_path, 
+    num_channels: int = 8, 
+    emg_range: list = [-128., 127.], 
+    desired_labels: list = None,
+):
+    """Load from mad dataset one person one trial, i.e., all classe_*.dat files in training0
+    
+    Returns:
+        emg (list[np.array]): list of np arries of emg signals where each element corresponds to a class label. 
+            The size of each array is [seq_len, num_channels].
+        labels (list): list of class labels. The length of the list is equal to the length of emg.
+            The class labels and corresponding emg is sorted.
+    """
+    filenames = [n for n in os.listdir(trial_path) if n.endswith(".dat")]
+    labels = [int(n.split("_")[1].replace(".dat", "")) for n in filenames]
+
+    # filter labels
+    is_desired_label = [l in desired_labels for l in labels]
+    filenames = [n for i, n in enumerate(filenames) if is_desired_label[i] == True]
+    labels = [l for i, l in enumerate(labels) if is_desired_label[i] == True]
+
+    # sort by labels
+    idx_sort = np.argsort(labels)
+    filenames = [filenames[i] for i in idx_sort]
+    labels = [labels[i] for i in idx_sort]
+
+    emg = [None for _ in range(len(filenames))]
+    labels = [None for _ in range(len(filenames))]
+    for i, filename in enumerate(filenames):
+        labels[i] = int(re.findall(r'\d+', filename)[0])
+        data = np.fromfile(os.path.join(trial_path, filename), dtype=np.int16).astype(np.float32)
+        data = data.reshape(-1, num_channels)
+        emg[i] = np.interp(data, emg_range, (-1, 1))
+    
     return emg, labels
 
-
+"""TODO: not sure what this is supposed to do"""
 def get_mad_windows(data_path, window_size, window_increment, emg_min = -128, emg_max = 127, desired_labels = None, return_lists=False):
-    emg_list, label_list = get_mad_sample(data_path, emg_min, emg_max, desired_labels)
+    emg_list, label_list = load_mad_person_trial(data_path, emg_min, emg_max, desired_labels)
 
     sort_id = np.argsort(label_list)
     label_list = [label_list[i] for i in sort_id]
@@ -115,75 +173,6 @@ def get_mad_windows(data_path, window_size, window_increment, emg_min = -128, em
         return flat_windows, labels, windows_list, label_list
 
     return flat_windows, labels
-
-def mad_augmentation(emg, actions, num_augmentation, augmentation_distribution='uniform'):
-    """Discrete emg data augmentation using random interpolation
-
-    Args:
-        emg (list): list of emg signals for each dof activation
-        actions (list): list of dof activations for each discrete action
-
-    Returns:
-        sample_emg (torch.tensor): sampled emgs. size=[num_augmentation, num_channels, window_size]
-        sample_actions (torch.tensor): sampled actions. size=[num_augmentation, act_dim]
-    """
-    idx_baseline = [i for i in range(len(actions)) if torch.all(actions[i] == 0)][0]
-    idx_pos = [i for i in range(len(actions)) if torch.any(actions[i] > 0)]
-    idx_neg = [i for i in range(len(actions)) if torch.any(actions[i] < 0)]
-    
-    # short emg to min samples
-    min_samples = min([el.shape[0] for el in emg])
-    emg = [el[:min_samples] for el in emg]
-
-    emg_baseline = emg[idx_baseline]
-    action_baseline = actions[idx_baseline]
-    emg_pos = torch.stack([emg[i] for i in idx_pos])
-    action_pos = torch.stack([actions[i] for i in idx_pos])
-    emg_neg = torch.stack([emg[i] for i in idx_neg])
-    action_neg = torch.stack([actions[i] for i in idx_neg])
-    
-    act_dim = action_baseline.shape[-1]
-
-    if augmentation_distribution == 'uniform':
-        sample_actions = torch.rand(num_augmentation, act_dim) * 2 - 1
-    elif augmentation_distribution == 'normal':
-        sample_actions = torch.normal(0, .5, (num_augmentation, act_dim)).clip(-1, 1)
-    else:
-        raise ValueError("augmentation_distribution must be 'uniform' or 'normal'")
-    
-    # init emg samples with baseline
-    idx_sample_baseline = torch.randint(len(emg_baseline), (num_augmentation,))
-    sample_baseline = emg_baseline[idx_sample_baseline]
-    
-    # interpolate emg as: (abs - baseline) * act
-    sample_emg = torch.zeros(*[num_augmentation] + list(emg_baseline.shape)[1:])
-    for i in range(act_dim):
-        idx_sample_pos = torch.randint(len(emg_baseline), (num_augmentation,))
-        idx_sample_neg = torch.randint(len(emg_baseline), (num_augmentation,))
-        pos_component = (emg_pos[i][idx_sample_pos] - sample_baseline) / action_pos[i][i]
-        neg_component = emg_neg[i][idx_sample_neg] - sample_baseline / action_neg[i][i].abs()
-        
-        abs_action = sample_actions[:, i].abs().view(-1, 1, 1)
-        is_pos = 1 * (sample_actions[:, i] > 0).view(-1, 1, 1)
-        sample_emg += (
-            is_pos * abs_action * pos_component + \
-            (1 - is_pos) * abs_action * neg_component # + \
-            # sample_baseline
-        )
-
-    sample_emg = sample_emg + sample_baseline
-    
-    return sample_emg, sample_actions
-
-def compute_features(windows, feature_list=['MAV', 'SSC', 'ZC', 'WL']):
-    features = FeatureExtractor().extract_features(
-        feature_list, 
-        windows.numpy()
-    )
-    features = np.stack(list(features.values()), axis=-1)
-    features = torch.from_numpy(features).flatten(start_dim=1).to(torch.float32)
-    return features
-
 
 def get_raw_mad_dataset(eval_path, window_length, overlap, skip_person=None):
     person_folders = [p for p in os.listdir(eval_path) if p != ".DS_Store"]
@@ -231,12 +220,13 @@ def get_raw_mad_dataset(eval_path, window_length, overlap, skip_person=None):
                                 dataset_example_formatted.append(example)
                                 example = example.transpose()
                                 example = example[size_non_overlap:]
+
                     dataset_example_formatted = np.array(dataset_example_formatted)
                     examples.append(dataset_example_formatted)
                     data_file_index = int(data_file.split('classe_')[1][:-4])
                     label = data_file_index % number_of_classes + np.zeros(dataset_example_formatted.shape[0])
                     labels.append(label)
-
+            
             raw_dataset['examples'].append(np.concatenate(examples))
             raw_dataset['labels'].append(np.concatenate(labels))
 
@@ -244,34 +234,70 @@ def get_raw_mad_dataset(eval_path, window_length, overlap, skip_person=None):
 
     return raw_dataset_dict
 
+def load_mad_dataset(
+    eval_path: str, 
+    num_channels: int = 8,
+    emg_range: list = [-128, 127],
+    window_size: int = 200, 
+    overlap: int = 50, 
+    desired_labels: list = None,
+    skip_person: list = None,
+):
+    """Load all person trials in mad dataset"""
+    person_folders = [p for p in os.listdir(eval_path) if p != ".DS_Store"]
+    first_folder = person_folders[0]
 
-def maybe_download_mad_dataset(mad_base_dir):
-    if os.path.exists(mad_base_dir):
-        return
-    print("MyoArmbandDataset not found")
+    trial_names = next(os.walk((eval_path + first_folder)))[1]
 
-    if os.path.exists(mad_base_dir + '/.lock'):
-        print("Waiting for download to finish")
-        # wait for download to finish
-        while os.path.exists(mad_base_dir + '/.lock'):
-            print(".", end="")
-            time.sleep(1)
-        return
+    raw_dataset_dict = {}
+    for trial in trial_names:
 
-    # create a lock file to prevent multiple downloads
-    os.system(f'touch {mad_base_dir}/.lock')
+        raw_dataset = {
+            'examples': [],
+            'labels': [],
+        }
 
-    print("Downloading MyoArmbandDataset")
-    cmd = f'git clone https://github.com/UlysseCoteAllard/MyoArmbandDataset {mad_base_dir}'
-    subprocess.call(cmd, shell=True)
-    print("Download finished")
+        for person_dir in person_folders:
+            # skip loading data for a certain person
+            if skip_person is not None and person_dir == skip_person:
+                print(f'skipping {skip_person}')
+                continue
+            
+            data_path = eval_path + person_dir + '/' + trial
+            emg, labels = load_mad_person_trial(
+                data_path, 
+                num_channels=num_channels, 
+                emg_range=emg_range, 
+                desired_labels=desired_labels,
+            )
 
-    # remove the lock file
-    os.system(f'rm {mad_base_dir}/.lock')
+            """TODO: why is my windows the transpose of yours?"""
+            windows = [
+                make_overlap_windows(
+                    e, 
+                    window_size=window_size, 
+                    overlap=overlap
+                ) for e in emg
+            ]
+
+            raw_dataset['examples'].append(np.concatenate(windows))
+            raw_dataset['labels'].append(np.array(labels))
+
+        raw_dataset_dict[trial] = raw_dataset
+
+    return raw_dataset_dict
 
 
-def get_mad_windows_dataset(mad_base_dir, window_length, window_increment, desired_labels = None,
-                            return_tensors = False, skip_person = None, emg_min = -128, emg_max = 127):
+def get_mad_windows_dataset(
+    mad_base_dir, 
+    window_length, 
+    window_increment, 
+    desired_labels = None,
+    return_tensors = False, 
+    skip_person = None, 
+    emg_min = -128, 
+    emg_max = 127
+):
     maybe_download_mad_dataset(mad_base_dir)
 
     train_path = mad_base_dir + '/PreTrainingDataset/'
@@ -333,3 +359,113 @@ def get_mad_lists(mad_emg, mad_labels):
         label_list.append(u_label)
 
     return emg_list, label_list
+
+def mad_augmentation(emg, actions, num_augmentation, augmentation_distribution='uniform'):
+    """Discrete emg data augmentation using random interpolation
+
+    Args:
+        emg (list): list of emg signals for each dof activation
+        actions (list): list of dof activations for each discrete action
+
+    Returns:
+        sample_emg (torch.tensor): sampled emgs. size=[num_augmentation, num_channels, window_size]
+        sample_actions (torch.tensor): sampled actions. size=[num_augmentation, act_dim]
+    """
+    idx_baseline = [i for i in range(len(actions)) if torch.all(actions[i] == 0)][0]
+    idx_pos = [i for i in range(len(actions)) if torch.any(actions[i] > 0)]
+    idx_neg = [i for i in range(len(actions)) if torch.any(actions[i] < 0)]
+    
+    # short emg to min samples
+    min_samples = min([el.shape[0] for el in emg])
+    emg = [el[:min_samples] for el in emg]
+
+    emg_baseline = emg[idx_baseline]
+    action_baseline = actions[idx_baseline]
+    emg_pos = torch.stack([emg[i] for i in idx_pos])
+    action_pos = torch.stack([actions[i] for i in idx_pos])
+    emg_neg = torch.stack([emg[i] for i in idx_neg])
+    action_neg = torch.stack([actions[i] for i in idx_neg])
+    
+    act_dim = action_baseline.shape[-1]
+
+    if augmentation_distribution == 'uniform':
+        sample_actions = torch.rand(num_augmentation, act_dim) * 2 - 1
+    elif augmentation_distribution == 'normal':
+        sample_actions = torch.normal(0, .5, (num_augmentation, act_dim)).clip(-1, 1)
+    else:
+        raise ValueError("augmentation_distribution must be 'uniform' or 'normal'")
+    
+    # init emg samples with baseline
+    idx_sample_baseline = torch.randint(len(emg_baseline), (num_augmentation,))
+    sample_baseline = emg_baseline[idx_sample_baseline]
+    
+    # interpolate emg as: (abs - baseline) * act
+    sample_emg = torch.zeros(*[num_augmentation] + list(emg_baseline.shape)[1:])
+    for i in range(act_dim):
+        idx_sample_pos = torch.randint(len(emg_baseline), (num_augmentation,))
+        idx_sample_neg = torch.randint(len(emg_baseline), (num_augmentation,))
+        pos_component = (emg_pos[i][idx_sample_pos] - sample_baseline) / action_pos[i][i]
+        neg_component = emg_neg[i][idx_sample_neg] - sample_baseline / action_neg[i][i].abs()
+        
+        abs_action = sample_actions[:, i].abs().view(-1, 1, 1)
+        is_pos = 1 * (sample_actions[:, i] > 0).view(-1, 1, 1)
+        sample_emg += (
+            is_pos * abs_action * pos_component + \
+            (1 - is_pos) * abs_action * neg_component # + \
+            # sample_baseline
+        )
+
+    sample_emg = sample_emg + sample_baseline
+    
+    return sample_emg, sample_actions
+
+if __name__ == "__main__":
+    from configs import BaseConfig
+    config = BaseConfig()
+
+    mad_base_dir = config.mad_base_path.as_posix()
+
+    desired_labels = [0, 1, 2, 3, 4, 5, 6]
+    emg, labels = load_mad_person_trial(
+        (config.mad_data_path / "Female0"/ "training0").as_posix(),
+        num_channels=config.n_channels,
+        emg_range=config.emg_range,
+        desired_labels=desired_labels,
+    )
+    assert len(emg) == len(desired_labels)
+    assert labels == desired_labels
+    assert all([a.shape[-1] == config.n_channels for a in emg])
+    assert all([np.all(np.abs(a) <= 1.) for a in emg])
+
+    windows = make_overlap_windows(
+        emg[0],
+        window_size=config.window_size,
+        overlap=config.window_size - config.window_increment,
+    )
+    assert list(windows.shape[1:]) == [config.n_channels, config.window_size]
+
+    train_raw_dataset_dict = get_raw_mad_dataset(
+        mad_base_dir + '/PreTrainingDataset/',
+        config.window_size,
+        config.window_size - config.window_increment,
+        skip_person='Female0',
+    )
+
+    train_raw_dataset_dict = load_mad_dataset(
+        mad_base_dir + '/PreTrainingDataset/',
+        num_channels=config.n_channels,
+        emg_range=config.emg_range,
+        window_size=config.window_size,
+        overlap=config.window_size - config.window_increment,
+        desired_labels=desired_labels,
+        skip_person='Female0',
+    )
+
+    # mad_emg, mad_labels = get_mad_windows_dataset(
+    #     config.mad_base_path.as_posix(),
+    #     config.window_size,
+    #     config.window_increment,
+    #     desired_labels=[0, 1, 2, 3, 4, 5, 6],
+    #     return_tensors=True,
+    #     skip_person='Female0'
+    # )

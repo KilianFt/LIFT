@@ -100,7 +100,6 @@ class PretrainConfig(BaseModel):
     augmentation_distribution: str = "uniform" # choices=["uniform", "normal"]
     train_ratio: float = 0.8
     batch_size: int = 128
-    window_increment: int = 150
     lr: float = 1.5e-5
 
 
@@ -128,13 +127,18 @@ class BaseConfig(BaseModel):
     project_name: str = "lift"
     wandb_mode: str = "online"
 
+    # data
+    n_channels: int = 8
+    window_size: int = 200
+    window_increment: int = 150
+    emg_range: list = [-128., 127.]
+
+
     seed: int = 100#42
     num_workers: int = 7
     teacher_train_timesteps: int = 150_000
     action_size: int = 3 # could be read from env
     feature_size: int = 32 # could be read from env
-    n_channels: int = 8
-    window_size: int = 200
 
     gradient_clip_val: float = 2.
     checkpoint_frequency: int = 1
