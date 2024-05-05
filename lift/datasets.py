@@ -407,7 +407,7 @@ def mad_augmentation(
         augmentation_distribution (str): distribution to sample from. choices = ["uniform", "normal"]
 
     Returns:
-        sample_emg (torch.tensor): sampled emgs. size=[num_augmentation, num_channels, window_size]
+        sample_emg (torch.tensor): sampled emgs windows. size=[num_augmentation, num_channels, window_size]
         sample_actions (torch.tensor): sampled actions. size=[num_augmentation, act_dim]
     """
     idx_baseline = [i for i in range(len(actions)) if torch.all(actions[i] == 0)][0]
@@ -419,10 +419,11 @@ def mad_augmentation(
     emg = [el[:min_samples] for el in emg]
 
     emg_baseline = emg[idx_baseline]
+    emg_pos = torch.stack([emg[i] - emg_baseline for i in idx_pos])
+    emg_neg = torch.stack([emg[i] - emg_baseline for i in idx_neg])
+
     action_baseline = actions[idx_baseline]
-    emg_pos = torch.stack([emg[i] for i in idx_pos])
     action_pos = torch.stack([actions[i] for i in idx_pos])
-    emg_neg = torch.stack([emg[i] for i in idx_neg])
     action_neg = torch.stack([actions[i] for i in idx_neg])
     
     act_dim = action_baseline.shape[-1]
@@ -443,18 +444,18 @@ def mad_augmentation(
     for i in range(act_dim):
         idx_sample_pos = torch.randint(len(emg_baseline), (num_augmentation,))
         idx_sample_neg = torch.randint(len(emg_baseline), (num_augmentation,))
-        pos_component = (emg_pos[i][idx_sample_pos] - sample_baseline) / action_pos[i][i]
-        neg_component = emg_neg[i][idx_sample_neg] - sample_baseline / action_neg[i][i].abs()
+        pos_component = emg_pos[i][idx_sample_pos] / action_pos[i][i].abs()
+        neg_component = emg_neg[i][idx_sample_neg] / action_neg[i][i].abs()
         
         abs_action = sample_actions[:, i].abs().view(-1, 1, 1)
         is_pos = 1 * (sample_actions[:, i] > 0).view(-1, 1, 1)
         sample_emg += (
             is_pos * abs_action * pos_component + \
-            (1 - is_pos) * abs_action * neg_component # + \
-            # sample_baseline
+            (1 - is_pos) * abs_action * neg_component
         )
 
-    sample_emg = sample_emg + sample_baseline
+    sample_emg = sample_emg / act_dim + sample_baseline
+    sample_emg = torch.clip(sample_emg, -1, 1)
     
     return sample_emg, sample_actions
 
@@ -518,18 +519,20 @@ if __name__ == "__main__":
     )
     assert list(mad_windows.shape[1:]) == [config.n_channels, config.window_size]
     assert mad_windows.shape[0] == mad_labels.shape[0]
+    assert torch.all(mad_windows.abs() <= 1.)
 
     # test augmentation
     window_list, label_list = mad_groupby_labels(mad_windows, mad_labels)
     actions_list = mad_labels_to_actions(
         label_list, recording_strength=config.simulator.recording_strength,
     )
-    sample_emg, sample_actions = mad_augmentation(
+    sample_windows, sample_actions = mad_augmentation(
         window_list, 
         actions_list, 
         config.pretrain.num_augmentation,
         augmentation_distribution=config.pretrain.augmentation_distribution
     )
-    assert list(sample_emg.shape) == [config.pretrain.num_augmentation, config.n_channels, config.window_size]
+    assert list(sample_windows.shape) == [config.pretrain.num_augmentation, config.n_channels, config.window_size]
     assert list(sample_actions.shape) == [config.pretrain.num_augmentation, 3]
     assert torch.all(sample_actions.abs() <= 1.)
+    assert torch.all(sample_windows.abs() <= 1.)
