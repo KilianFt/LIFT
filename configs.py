@@ -130,9 +130,9 @@ class BaseConfig(BaseModel):
     # data
     n_channels: int = 8
     window_size: int = 200
-    window_increment: int = 150
+    window_overlap: int = 50
     emg_range: list = [-128., 127.]
-
+    desired_mad_labels: list = [0, 1, 2, 3, 4, 5, 6]
 
     seed: int = 100#42
     num_workers: int = 7

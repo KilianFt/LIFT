@@ -11,9 +11,15 @@ from lift.environments.simulator import WindowSimulator
 from lift.environments.rollout import rollout
 from lift.teacher import load_teacher
 
-from lift.datasets import mad_augmentation, compute_features, get_dataloaders, get_mad_windows_dataset, get_mad_lists
+from lift.datasets import (
+    load_all_mad_datasets, 
+    mad_groupby_labels,
+    mad_labels_to_actions,
+    mad_augmentation, 
+    compute_features, 
+    get_dataloaders, 
+)
 from lift.controllers import BCTrainer, EMGAgent
-from lift.utils import mad_labels_to_actions
 
 
 def validate(env, teacher, sim, encoder, logger):
@@ -77,26 +83,36 @@ def load_fake_data(config):
 
     return emg_features, actions
 
-def load_data(config, load_fake=False):
+def load_data(config: BaseConfig, load_fake=False):
     if load_fake:
         return load_fake_data(config)
 
-    mad_emg, mad_labels = get_mad_windows_dataset(config.mad_base_path.as_posix(),
-                                                  config.window_size,
-                                                  config.pretrain.window_increment,
-                                                  desired_labels=[0, 1, 2, 3, 4, 5, 6],
-                                                  return_tensors=True,
-                                                  skip_person='Female0')
-    
-    windows_list, label_list = get_mad_lists(mad_emg, mad_labels)
-
-    mad_features = compute_features(mad_emg)
-    mad_actions = mad_labels_to_actions(mad_labels, recording_strength=config.simulator.recording_strength)
+    mad_windows, mad_labels = load_all_mad_datasets(
+        config.mad_base_path.as_posix(),
+        num_channels=config.n_channels,
+        emg_range=config.emg_range,
+        window_size=config.window_size,
+        window_overlap=config.window_overlap,
+        desired_labels=config.desired_mad_labels,
+        skip_person='Female0',
+        return_tensors=True,
+    )
+    mad_features = compute_features(mad_windows)
+    mad_actions = mad_labels_to_actions(
+        mad_labels, recording_strength=config.simulator.recording_strength,
+    )
 
     if config.pretrain.num_augmentation > 0:
-        actions_list = mad_labels_to_actions(label_list, recording_strength=config.simulator.recording_strength)
-        sample_emg, sample_actions = mad_augmentation(windows_list, actions_list, config.pretrain.num_augmentation,
-                                                      augmentation_distribution=config.pretrain.augmentation_distribution)
+        window_list, label_list = mad_groupby_labels(mad_windows, mad_labels)
+        actions_list = mad_labels_to_actions(
+            label_list, recording_strength=config.simulator.recording_strength,
+        )
+        sample_emg, sample_actions = mad_augmentation(
+            window_list, 
+            actions_list, 
+            config.pretrain.num_augmentation,
+            augmentation_distribution=config.pretrain.augmentation_distribution
+        )
         sample_features = compute_features(sample_emg)
 
         features = torch.cat([mad_features, sample_features], dim=0)

@@ -50,13 +50,13 @@ def get_dataloaders(data_dict, train_ratio=0.8, batch_size=32, num_workers=4):
     )
     return train_dataloader, val_dataloader
 
-def make_overlap_windows(emg: np.array, window_size: int = 200, overlap: int = 150):
+def make_overlap_windows(emg: np.array, window_size: int = 200, window_overlap: int = 150):
     """Make overlapping windows from streaming signals
 
     Returns:
         windows (np.array): emg windows. size = [num_windows, num_channels, window_size]
     """
-    append_len = window_size - overlap
+    append_len = window_size - window_overlap
     windows = [emg[:window_size]]
     num_windows = (len(emg) - window_size) // append_len
     for i in range(num_windows):
@@ -66,15 +66,14 @@ def make_overlap_windows(emg: np.array, window_size: int = 200, overlap: int = 1
     windows = np.moveaxis(windows, -2, -1)
     return windows
 
-"""TODO: verify this"""
 def compute_features(
     windows: np.ndarray | torch.Tensor, 
     feature_list: list = ['MAV', 'SSC', 'ZC', 'WL'],
 ):
-    """Compute emg features using libemg
+    """Compute emg features using libemg and flatten
     
     Returns:
-        features (torch.tensor): 
+        features (torch.tensor): emg features. size = [num_samples, num_channels * num_features]
     """
     if not isinstance(windows, np.ndarray):
         windows = windows.numpy()
@@ -87,6 +86,16 @@ def compute_features(
 """
 mad dataset
 """
+MAD_LABELS_TO_DOF = np.array([
+    [0, 0, 0], # Neutral
+    [1, 0, 0], # Radial Deviation
+    [-1, 0, 0], # Ulnar Deviation
+    [0, 1, 0], # Wrist Flexion
+    [0, -1, 0], # Wrist Extension
+    [0, 0, 1], # Hand Close
+    [0, 0, -1], # Hand Open
+])
+
 def maybe_download_mad_dataset(mad_base_dir):
     if os.path.exists(mad_base_dir):
         return
@@ -112,7 +121,7 @@ def maybe_download_mad_dataset(mad_base_dir):
     os.system(f'rm {mad_base_dir}/.lock')
 
 def load_mad_person_trial(
-    trial_path, 
+    trial_path: str, 
     num_channels: int = 8, 
     emg_range: list = [-128., 127.], 
     desired_labels: list = None,
@@ -121,6 +130,7 @@ def load_mad_person_trial(
     
     Returns:
         emg (list[np.array]): list of np arries of emg signals where each element corresponds to a class label. 
+            The emg signals are normalized to range [-1, 1] based on argument emg_range.
             The size of each array is [seq_len, num_channels].
         labels (list): list of class labels. The length of the list is equal to the length of emg.
             The class labels and corresponding emg is sorted.
@@ -174,198 +184,227 @@ def get_mad_windows(data_path, window_size, window_increment, emg_min = -128, em
 
     return flat_windows, labels
 
-def get_raw_mad_dataset(eval_path, window_length, overlap, skip_person=None):
-    person_folders = [p for p in os.listdir(eval_path) if p != ".DS_Store"]
-    first_folder = person_folders[0]
+# def get_raw_mad_dataset(eval_path, window_size, overlap, skip_person=None):
+#     person_folders = [p for p in os.listdir(eval_path) if p != ".DS_Store"]
+#     first_folder = person_folders[0]
 
-    keys = next(os.walk((eval_path + first_folder)))[1]
+#     keys = next(os.walk((eval_path + first_folder)))[1]
 
-    number_of_classes = 7
-    size_non_overlap = window_length - overlap
+#     number_of_classes = 7
+#     size_non_overlap = window_size - overlap
 
-    raw_dataset_dict = {}
-    for key in keys:
+#     raw_dataset_dict = {}
+#     for key in keys:
 
-        raw_dataset = {
-            'examples': [],
-            'labels': [],
-        }
+#         raw_dataset = {
+#             'examples': [],
+#             'labels': [],
+#         }
 
-        for person_dir in person_folders:
-            # skip loading data for a certain person
-            if skip_person is not None and person_dir == skip_person:
-                print(f'skipping {skip_person}')
-                continue
-            examples = []
-            labels = []
-            data_path = eval_path + person_dir + '/' + key
-            for data_file in os.listdir(data_path):
-                if data_file.endswith(".dat"):
-                    data_read_from_file = np.fromfile((data_path + '/' + data_file), dtype=np.int16)
-                    data_read_from_file = np.array(data_read_from_file, dtype=np.float32)
+#         for person_dir in person_folders:
+#             # skip loading data for a certain person
+#             if skip_person is not None and person_dir == skip_person:
+#                 print(f'skipping {skip_person}')
+#                 continue
+#             examples = []
+#             labels = []
+#             data_path = eval_path + person_dir + '/' + key
+#             for data_file in os.listdir(data_path):
+#                 if data_file.endswith(".dat"):
+#                     data_read_from_file = np.fromfile((data_path + '/' + data_file), dtype=np.int16)
+#                     data_read_from_file = np.array(data_read_from_file, dtype=np.float32)
 
-                    dataset_example_formatted = []
-                    example = None
-                    emg_vector = []
-                    for value in data_read_from_file:
-                        emg_vector.append(value)
-                        if (len(emg_vector) >= 8):
-                            if example is None:
-                                example = emg_vector
-                            else:
-                                example = np.row_stack((example, emg_vector))
-                            emg_vector = []
-                            if (len(example) >= window_length):
-                                example = example.transpose()
-                                dataset_example_formatted.append(example)
-                                example = example.transpose()
-                                example = example[size_non_overlap:]
+#                     dataset_example_formatted = []
+#                     example = None
+#                     emg_vector = []
+#                     for value in data_read_from_file:
+#                         emg_vector.append(value)
+#                         if (len(emg_vector) >= 8):
+#                             if example is None:
+#                                 example = emg_vector
+#                             else:
+#                                 example = np.row_stack((example, emg_vector))
+#                             emg_vector = []
+#                             if (len(example) >= window_size):
+#                                 example = example.transpose()
+#                                 dataset_example_formatted.append(example)
+#                                 example = example.transpose()
+#                                 example = example[size_non_overlap:]
 
-                    dataset_example_formatted = np.array(dataset_example_formatted)
-                    examples.append(dataset_example_formatted)
-                    data_file_index = int(data_file.split('classe_')[1][:-4])
-                    label = data_file_index % number_of_classes + np.zeros(dataset_example_formatted.shape[0])
-                    labels.append(label)
+#                     dataset_example_formatted = np.array(dataset_example_formatted)
+#                     examples.append(dataset_example_formatted)
+#                     data_file_index = int(data_file.split('classe_')[1][:-4])
+#                     label = data_file_index % number_of_classes + np.zeros(dataset_example_formatted.shape[0])
+#                     labels.append(label)
             
-            raw_dataset['examples'].append(np.concatenate(examples))
-            raw_dataset['labels'].append(np.concatenate(labels))
+#             raw_dataset['examples'].append(np.concatenate(examples))
+#             raw_dataset['labels'].append(np.concatenate(labels))
 
-        raw_dataset_dict[key] = raw_dataset
+#         raw_dataset_dict[key] = raw_dataset
 
-    return raw_dataset_dict
+#     return raw_dataset_dict
 
 def load_mad_dataset(
-    eval_path: str, 
+    data_path: str, 
     num_channels: int = 8,
     emg_range: list = [-128, 127],
     window_size: int = 200, 
-    overlap: int = 50, 
+    window_overlap: int = 50, 
     desired_labels: list = None,
     skip_person: list = None,
 ):
-    """Load all person trials in mad dataset"""
-    person_folders = [p for p in os.listdir(eval_path) if p != ".DS_Store"]
+    """Load all person trials in mad dataset in either pretrain or eval path
+    
+    Returns:
+        dataset (dict[dict[np.array]]): dictionary of pairs of emg and labels np arraies. 
+            The first level keys are mad data trial names. The second level keys are ["emg", "labels"].
+    """
+    person_folders = [p for p in os.listdir(data_path) if p != ".DS_Store"]
     first_folder = person_folders[0]
+    trial_names = next(os.walk((data_path + first_folder)))[1]
 
-    trial_names = next(os.walk((eval_path + first_folder)))[1]
-
-    raw_dataset_dict = {}
+    dataset = {}
     for trial in trial_names:
-
-        raw_dataset = {
-            'examples': [],
-            'labels': [],
-        }
-
+        trial_dataset = {'emg': [], 'labels': []}
         for person_dir in person_folders:
             # skip loading data for a certain person
             if skip_person is not None and person_dir == skip_person:
                 print(f'skipping {skip_person}')
                 continue
             
-            data_path = eval_path + person_dir + '/' + trial
+            trial_path = data_path + person_dir + '/' + trial
             emg, labels = load_mad_person_trial(
-                data_path, 
+                trial_path, 
                 num_channels=num_channels, 
                 emg_range=emg_range, 
                 desired_labels=desired_labels,
             )
-
-            """TODO: why is my windows the transpose of yours?"""
             windows = [
                 make_overlap_windows(
                     e, 
                     window_size=window_size, 
-                    overlap=overlap
+                    window_overlap=window_overlap,
                 ) for e in emg
             ]
+            labels = [np.ones(len(w)) * labels[i] for i, w in enumerate(windows)]
+            
+            trial_dataset['emg'].append(np.concatenate(windows))
+            trial_dataset['labels'].append(np.concatenate(labels))
+        
+        trial_dataset['emg'] = np.concatenate(trial_dataset['emg'])
+        trial_dataset['labels'] = np.concatenate(trial_dataset['labels']).astype(int)
+        dataset[trial] = trial_dataset
+    return dataset
 
-            raw_dataset['examples'].append(np.concatenate(windows))
-            raw_dataset['labels'].append(np.array(labels))
-
-        raw_dataset_dict[trial] = raw_dataset
-
-    return raw_dataset_dict
-
-
-def get_mad_windows_dataset(
-    mad_base_dir, 
-    window_length, 
-    window_increment, 
-    desired_labels = None,
-    return_tensors = False, 
-    skip_person = None, 
-    emg_min = -128, 
-    emg_max = 127
+def load_all_mad_datasets(
+    mad_base_dir: str, 
+    num_channels: int = 8,
+    emg_range: list = [-128, 127],
+    window_size: int = 200, 
+    window_overlap: int = 50, 
+    desired_labels: list = None,
+    skip_person: list = None,
+    return_tensors: bool = False, 
 ):
+    """Load all mad pretain and eval data
+    
+    Returns:
+        mad_windows (np.array | torch.tensor): concatenated windows. size = [num_samples, num_channels, window_size]
+        mad_labels (np.array | torch.tensor): concatenated labels. size = [num_samples]
+    """
     maybe_download_mad_dataset(mad_base_dir)
-
     train_path = mad_base_dir + '/PreTrainingDataset/'
     eval_path = mad_base_dir + '/EvaluationDataset/'
 
-    overlap = window_length - window_increment
-    train_raw_dataset_dict = get_raw_mad_dataset(train_path, window_length, overlap, skip_person=skip_person)
-    eval_raw_dataset_dict = get_raw_mad_dataset(eval_path, window_length, overlap, skip_person=skip_person)
-
-    mad_all_windows = (
-            eval_raw_dataset_dict['training0']['examples'] +
-            eval_raw_dataset_dict['Test0']['examples'] +
-            eval_raw_dataset_dict['Test1']['examples'] +
-            train_raw_dataset_dict['training0']['examples']
+    train_dataset = load_mad_dataset(
+        train_path,        
+        num_channels=num_channels,
+        emg_range=emg_range,
+        window_size=window_size,
+        window_overlap=window_overlap,
+        desired_labels=desired_labels,
+        skip_person=skip_person,
+    )
+    eval_dataset = load_mad_dataset(
+        eval_path, 
+        num_channels=num_channels,
+        emg_range=emg_range,
+        window_size=window_size,
+        window_overlap=window_overlap,
+        desired_labels=desired_labels,
+        skip_person=skip_person,
     )
 
-    mad_all_labels = (
-            eval_raw_dataset_dict['training0']['labels'] +
-            eval_raw_dataset_dict['Test0']['labels'] +
-            eval_raw_dataset_dict['Test1']['labels'] +
-            train_raw_dataset_dict['training0']['labels']
-    )
+    mad_windows = np.concatenate([
+        train_dataset['training0']['emg'],
+        eval_dataset['training0']['emg'],
+        eval_dataset['Test0']['emg'],
+        eval_dataset['Test1']['emg'],
+    ])
 
-    # filter by desired_labels
-    if desired_labels is None:
-        mad_windows, mad_labels = mad_all_windows, mad_all_labels
-
-    else:
-        mad_windows = None
-        mad_labels = None
-        # TODO use desired_labels
-        for mad_p_examples, mad_p_labels in zip(mad_all_windows, mad_all_labels):
-            label_map = (mad_p_labels >= 0) & (mad_p_labels <= 6)
-            mad_subject_windows = mad_p_examples[label_map]
-            subject_labels = mad_p_labels[label_map]
-
-            if mad_windows is None:
-                mad_windows = mad_subject_windows
-                mad_labels = subject_labels
-            else:
-                mad_windows = np.concatenate((mad_windows, mad_subject_windows))
-                mad_labels = np.concatenate((mad_labels, subject_labels))
-
-    mad_windows = np.interp(mad_windows, (emg_min, emg_max), (-1, 1))
+    mad_labels = np.concatenate([
+        train_dataset['training0']['labels'],
+        eval_dataset['training0']['labels'],
+        eval_dataset['Test0']['labels'],
+        eval_dataset['Test1']['labels'],
+    ])
 
     print("MAD dataset loaded")
     if return_tensors:
-        mad_windows, mad_labels = torch.tensor(mad_windows, dtype=torch.float32), torch.tensor(mad_labels)
-
+        mad_windows = torch.tensor(mad_windows, dtype=torch.float32)
+        mad_labels = torch.tensor(mad_labels)
     return mad_windows, mad_labels
 
-def get_mad_lists(mad_emg, mad_labels):
+def mad_groupby_labels(emg: np.array, labels: np.array):
+    """Group emg into list according to labels
+    
+    emg_list (list[np.array]): list of emg windows or features grouped by labels.
+    label_list (list[int]): list of labels. 
+    """
     emg_list = []
     label_list = []
-    for u_label in np.unique(mad_labels):
-        label_idxs = np.where(mad_labels == u_label)[0]
-        label_emg = mad_emg[label_idxs]
+    for u_label in np.sort(np.unique(labels)):
+        label_idxs = np.where(labels == u_label)[0]
+        label_emg = emg[label_idxs]
         emg_list.append(label_emg)
         label_list.append(u_label)
-
     return emg_list, label_list
 
-def mad_augmentation(emg, actions, num_augmentation, augmentation_distribution='uniform'):
+def mad_labels_to_actions(labels: list, recording_strength: float = 1.0):
+    """Convert labels (0 to 6) to actions"""
+    if not isinstance(labels, torch.Tensor):
+        labels = torch.tensor(labels)
+
+    if labels.max() > 6 or labels.min() < 0:
+        raise ValueError("Labels should be in range [0, 6]")
+    
+    assert labels.max() <= 6 and labels.min() >= 0, "Labels should be in range [0, 6]"
+
+    actions = torch.zeros(len(labels), 3)
+    # labels == 0 is Rest
+    actions[labels == 1, 0] = 1
+    actions[labels == 2, 0] = -1
+    actions[labels == 3, 1] = 1
+    actions[labels == 4, 1] = -1
+    actions[labels == 5, 2] = 1
+    actions[labels == 6, 2] = -1
+
+    actions *= recording_strength
+    return actions
+
+def mad_augmentation(
+    emg: list[torch.Tensor], 
+    actions: list[torch.Tensor], 
+    num_augmentation: int, 
+    augmentation_distribution: str = 'uniform',
+):
     """Discrete emg data augmentation using random interpolation
 
     Args:
-        emg (list): list of emg signals for each dof activation
-        actions (list): list of dof activations for each discrete action
+        emg (list[torch.Tensor]): list of emg windows for each dof activation
+        actions (list[torch.Tensor]): list of dof activations for each discrete action
+        num_augmentation (int): number of augmented samples to generate
+        augmentation_distribution (str): distribution to sample from. choices = ["uniform", "normal"]
 
     Returns:
         sample_emg (torch.tensor): sampled emgs. size=[num_augmentation, num_channels, window_size]
@@ -375,7 +414,7 @@ def mad_augmentation(emg, actions, num_augmentation, augmentation_distribution='
     idx_pos = [i for i in range(len(actions)) if torch.any(actions[i] > 0)]
     idx_neg = [i for i in range(len(actions)) if torch.any(actions[i] < 0)]
     
-    # short emg to min samples
+    # truncate to the smallest sample size
     min_samples = min([el.shape[0] for el in emg])
     emg = [el[:min_samples] for el in emg]
 
@@ -424,8 +463,9 @@ if __name__ == "__main__":
     config = BaseConfig()
 
     mad_base_dir = config.mad_base_path.as_posix()
-
     desired_labels = [0, 1, 2, 3, 4, 5, 6]
+
+    # test load single person trial
     emg, labels = load_mad_person_trial(
         (config.mad_data_path / "Female0"/ "training0").as_posix(),
         num_channels=config.n_channels,
@@ -437,35 +477,59 @@ if __name__ == "__main__":
     assert all([a.shape[-1] == config.n_channels for a in emg])
     assert all([np.all(np.abs(a) <= 1.) for a in emg])
 
+    # test make windows
     windows = make_overlap_windows(
         emg[0],
         window_size=config.window_size,
-        overlap=config.window_size - config.window_increment,
+        window_overlap=config.window_overlap,
     )
     assert list(windows.shape[1:]) == [config.n_channels, config.window_size]
 
-    train_raw_dataset_dict = get_raw_mad_dataset(
-        mad_base_dir + '/PreTrainingDataset/',
-        config.window_size,
-        config.window_size - config.window_increment,
-        skip_person='Female0',
+    # test compute features
+    features = compute_features(
+        windows,
+        feature_list=["MAV", "SSC", "ZC", "WL"],
     )
+    assert list(features.shape) == [len(windows), config.n_channels * 4]
 
-    train_raw_dataset_dict = load_mad_dataset(
+    # test load all pretrain
+    train_dataset = load_mad_dataset(
         mad_base_dir + '/PreTrainingDataset/',
         num_channels=config.n_channels,
         emg_range=config.emg_range,
         window_size=config.window_size,
-        overlap=config.window_size - config.window_increment,
+        window_overlap=config.window_overlap,
         desired_labels=desired_labels,
         skip_person='Female0',
     )
+    assert list(train_dataset["training0"]["emg"].shape[1:]) == [config.n_channels, config.window_size]
+    assert train_dataset["training0"]["emg"].shape[0] == train_dataset["training0"]["labels"].shape[0]
+    
+    # test load all data
+    mad_windows, mad_labels = load_all_mad_datasets(
+        mad_base_dir,
+        num_channels=config.n_channels,
+        emg_range=config.emg_range,
+        window_size=config.window_size,
+        window_overlap=config.window_overlap,
+        desired_labels=desired_labels,
+        skip_person='Female0',
+        return_tensors=True,
+    )
+    assert list(mad_windows.shape[1:]) == [config.n_channels, config.window_size]
+    assert mad_windows.shape[0] == mad_labels.shape[0]
 
-    # mad_emg, mad_labels = get_mad_windows_dataset(
-    #     config.mad_base_path.as_posix(),
-    #     config.window_size,
-    #     config.window_increment,
-    #     desired_labels=[0, 1, 2, 3, 4, 5, 6],
-    #     return_tensors=True,
-    #     skip_person='Female0'
-    # )
+    # test augmentation
+    window_list, label_list = mad_groupby_labels(mad_windows, mad_labels)
+    actions_list = mad_labels_to_actions(
+        label_list, recording_strength=config.simulator.recording_strength,
+    )
+    sample_emg, sample_actions = mad_augmentation(
+        window_list, 
+        actions_list, 
+        config.pretrain.num_augmentation,
+        augmentation_distribution=config.pretrain.augmentation_distribution
+    )
+    assert list(sample_emg.shape) == [config.pretrain.num_augmentation, config.n_channels, config.window_size]
+    assert list(sample_actions.shape) == [config.pretrain.num_augmentation, 3]
+    assert torch.all(sample_actions.abs() <= 1.)

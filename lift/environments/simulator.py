@@ -9,7 +9,7 @@ import torch.nn.functional as F
 import torch.distributions as torch_dist
 
 from libemg.utils import get_windows
-from lift.datasets import get_mad_sample, compute_features
+from lift.datasets import load_mad_person_trial, compute_features
 
 # TODO
 # - how to handle action transitions
@@ -134,10 +134,15 @@ class WindowSimulator:
         return window
 
     """TODO: maybe aggregate all mad samples and feed as input to this function in case we want to fit to multiple participants"""
-    def fit_params_to_mad_sample(self, data_path, desired_labels = [1, 2, 3, 4, 5, 6]):
+    def fit_params_to_mad_sample(self, data_path, emg_range: list = [-128, 127], desired_labels: list = [1, 2, 3, 4, 5, 6]):
         # 0 = Neutral, 1 = Radial Deviation, 2 = Wrist Flexion, 3 = Ulnar Deviation, 4 = Wrist Extension, 5 = Hand Close, 6 = Hand Open
         # TODO fit neutral
-        emg_list, label_list = get_mad_sample(data_path, desired_labels = desired_labels)
+        emg_list, label_list = load_mad_person_trial(
+            data_path, 
+            num_channels=self.num_channels,
+            emg_range=emg_range,
+            desired_labels=desired_labels,
+        )
         sort_id = np.argsort(label_list)
         emg_list = [emg_list[i] for i in sort_id]
         # switch emg_list idx 1 and 2 to have opposite movements next to each other
