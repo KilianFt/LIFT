@@ -56,6 +56,11 @@ class GaussianEncoder(nn.Module):
         sd = torch.exp(ls.clip(self._min_logstd, self._max_logstd))
         return mu, sd
     
+    def get_dist(self, x):
+        mu, sd = self.forward(x)
+        dist = torch_dist.Normal(mu, sd)
+        return dist
+    
     def sample(self, x):
         mu, sd = self.forward(x)
         dist = torch_dist.Normal(mu, sd)
@@ -113,7 +118,7 @@ class BCTrainer(L.LightningModule):
         )
 
     def compute_loss(self, dist, a):
-        loss = -dist.log_prob(a).mean()
+        loss = -dist.log_prob(a).mean() / self.a_dim
         return loss
     
     def training_step(self, batch, _):
