@@ -133,7 +133,10 @@ class WindowSimulator:
         
         return window
 
-    """TODO: maybe aggregate all mad samples and feed as input to this function in case we want to fit to multiple participants"""
+    """TODO: 
+    make simulator fitting and sampling consistent with mad augmentation
+    maybe aggregate all mad samples and feed as input to this function in case we want to fit to multiple participants
+    """
     def fit_params_to_mad_sample(self, data_path, emg_range: list = [-128, 127], desired_labels: list = [1, 2, 3, 4, 5, 6]):
         # 0 = Neutral, 1 = Radial Deviation, 2 = Wrist Flexion, 3 = Ulnar Deviation, 4 = Wrist Extension, 5 = Hand Close, 6 = Hand Open
         # TODO fit neutral
@@ -170,6 +173,7 @@ class WindowSimulator:
 
 if __name__ == "__main__":
     from configs import BaseConfig
+    from lift.datasets import MAD_LABELS_TO_DOF
     import matplotlib.pyplot as plt
 
     config = BaseConfig()
@@ -183,7 +187,7 @@ if __name__ == "__main__":
     sim.fit_params_to_mad_sample(
         str(config.mad_data_path / "Female0/training0/")
     )
-    single_actions = torch.tensor([[0.5, 0, 0], [-0.5, 0, 0], [0, 0.5, 0], [0, -0.5, 0], [0, 0, 0.5], [0, 0, -0.5]])
+    single_actions = torch.from_numpy(MAD_LABELS_TO_DOF).to(torch.float32) * 0.5
     out = sim(single_actions)
 
     fig, ax = plt.subplots(1, 1, figsize=(6, 4))
