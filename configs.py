@@ -86,7 +86,7 @@ class EncoderConfig(BaseModel):
     kl_approx_method: str = "logp" # choices=[logp, abs, mse]
     hidden_size: int = 256
     n_layers: int = 4
-    dropout: float = 0.3
+    dropout: float = 0.
 
 
 class SimulatorConfig(BaseModel):
@@ -100,7 +100,7 @@ class PretrainConfig(BaseModel):
     augmentation_distribution: str = "uniform" # choices=["uniform", "normal"]
     train_ratio: float = 0.8
     batch_size: int = 128
-    lr: float = 1.5e-5
+    lr: float = 3.0e-4
 
 
 class MIConfig(BaseModel):
@@ -134,7 +134,7 @@ class BaseConfig(BaseModel):
     emg_range: list = [-128., 127.]
     desired_mad_labels: list = [0, 1, 2, 3, 4, 5, 6]
 
-    seed: int = 100#42
+    seed: int = 100
     num_workers: int = 7
     teacher_train_timesteps: int = 150_000
     action_size: int = 3 # could be read from env

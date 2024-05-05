@@ -23,6 +23,7 @@ from lift.controllers import BCTrainer, EMGAgent
 
 
 def validate(env, teacher, sim, encoder, logger):
+    encoder.eval()
     emg_env = EMGEnv(env, teacher, sim)
     agent = EMGAgent(encoder)
     data = rollout(
@@ -41,7 +42,6 @@ def validate(env, teacher, sim, encoder, logger):
     return data
 
 def train(emg_features, actions, model, logger, config: BaseConfig):
-
     sl_data_dict = {
         "emg_obs": emg_features,
         "act": actions,
@@ -107,13 +107,13 @@ def load_data(config: BaseConfig, load_fake=False):
         actions_list = mad_labels_to_actions(
             label_list, recording_strength=config.simulator.recording_strength,
         )
-        sample_emg, sample_actions = mad_augmentation(
+        sample_windows, sample_actions = mad_augmentation(
             window_list, 
             actions_list, 
             config.pretrain.num_augmentation,
             augmentation_distribution=config.pretrain.augmentation_distribution
         )
-        sample_features = compute_features(sample_emg)
+        sample_features = compute_features(sample_windows)
 
         features = torch.cat([mad_features, sample_features], dim=0)
         actions = torch.cat([mad_actions, sample_actions], dim=0)
