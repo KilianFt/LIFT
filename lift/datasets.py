@@ -2,6 +2,7 @@ import os
 import re
 import subprocess
 import time
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -89,14 +90,17 @@ mad dataset
 MAD_LABELS_TO_DOF = np.array([
     [0, 0, 0], # Neutral
     [1, 0, 0], # Radial Deviation
-    [-1, 0, 0], # Ulnar Deviation
     [0, 1, 0], # Wrist Flexion
+    [-1, 0, 0], # Ulnar Deviation
     [0, -1, 0], # Wrist Extension
     [0, 0, 1], # Hand Close
     [0, 0, -1], # Hand Open
 ])
 
 def maybe_download_mad_dataset(mad_base_dir):
+    if isinstance(mad_base_dir, Path):
+        mad_base_dir = mad_base_dir.as_posix()
+
     if os.path.exists(mad_base_dir):
         return
     print("MyoArmbandDataset not found")
@@ -138,51 +142,59 @@ def load_mad_person_trial(
     filenames = [n for n in os.listdir(trial_path) if n.endswith(".dat")]
     labels = [int(n.split("_")[1].replace(".dat", "")) for n in filenames]
 
+    # labels cycle every 7 classes, thus class 0 is same as 7 which is same as 14
+    labels = [l % 7 for l in labels]
+
     # filter labels
-    is_desired_label = [l in desired_labels for l in labels]
-    filenames = [n for i, n in enumerate(filenames) if is_desired_label[i] == True]
-    labels = [l for i, l in enumerate(labels) if is_desired_label[i] == True]
+    if desired_labels is not None:
+        assert min(desired_labels) >= 0 and max(desired_labels) <= 6, "desired_labels should be in range [0, 6]"
+        is_desired_label = [l in desired_labels for l in labels]
+        filenames = [n for i, n in enumerate(filenames) if is_desired_label[i] == True]
+        labels = [l for i, l in enumerate(labels) if is_desired_label[i] == True]
 
     # sort by labels
-    idx_sort = np.argsort(labels)
-    filenames = [filenames[i] for i in idx_sort]
-    labels = [labels[i] for i in idx_sort]
+    unique_labels = np.sort(np.unique(labels))
+    emg = [None for _ in range(len(unique_labels))]
 
-    emg = [None for _ in range(len(filenames))]
-    labels = [None for _ in range(len(filenames))]
-    for i, filename in enumerate(filenames):
-        labels[i] = int(re.findall(r'\d+', filename)[0])
-        data = np.fromfile(os.path.join(trial_path, filename), dtype=np.int16).astype(np.float32)
-        data = data.reshape(-1, num_channels)
-        emg[i] = np.interp(data, emg_range, (-1, 1))
+    for i, u_label in enumerate(unique_labels):
+        filenames_label = [f for f, l in zip(filenames, labels) if l == u_label]
+
+        for filename in filenames_label:
+            data = np.fromfile(os.path.join(trial_path, filename), dtype=np.int16).astype(np.float32)
+            data = data.reshape(-1, num_channels)
+            data = np.interp(data, emg_range, (-1, 1))
+            if emg[i] is None:
+                emg[i] = data
+            else:
+                emg[i] = np.concatenate([emg[i], data], axis=0)
     
-    return emg, labels
+    return emg, unique_labels
 
-"""TODO: not sure what this is supposed to do"""
-def get_mad_windows(data_path, window_size, window_increment, emg_min = -128, emg_max = 127, desired_labels = None, return_lists=False):
-    emg_list, label_list = load_mad_person_trial(data_path, emg_min, emg_max, desired_labels)
+# """TODO: not sure what this is supposed to do"""
+# def get_mad_windows(data_path, window_size, window_increment, emg_min = -128, emg_max = 127, desired_labels = None, return_lists=False):
+#     emg_list, label_list = load_mad_person_trial(data_path, emg_min, emg_max, desired_labels)
 
-    sort_id = np.argsort(label_list)
-    label_list = [label_list[i] for i in sort_id]
-    emg_list = [emg_list[i] for i in sort_id]
-    # I used labels 0 - 4 (including 4), where label 0 is rest
+#     sort_id = np.argsort(label_list)
+#     label_list = [label_list[i] for i in sort_id]
+#     emg_list = [emg_list[i] for i in sort_id]
+#     # I used labels 0 - 4 (including 4), where label 0 is rest
 
-    min_len = min([len(emg) for emg in emg_list])
-    short_emgs = [emg[:min_len,:] for emg in emg_list]
-    windows_list = [torch.from_numpy(get_windows(s_emg, window_size, window_increment)) for s_emg in short_emgs]
-    windows = torch.stack(windows_list, dim=0)
-    flat_windows = windows.flatten(start_dim=0, end_dim=1)
+#     min_len = min([len(emg) for emg in emg_list])
+#     short_emgs = [emg[:min_len,:] for emg in emg_list]
+#     windows_list = [torch.from_numpy(get_windows(s_emg, window_size, window_increment)) for s_emg in short_emgs]
+#     windows = torch.stack(windows_list, dim=0)
+#     flat_windows = windows.flatten(start_dim=0, end_dim=1)
 
-    n_repeats = windows_list[0].shape[0]
-    short_labels = torch.tensor([np.repeat(label, repeats=n_repeats) for label in label_list])
-    labels = short_labels.flatten(start_dim=0, end_dim=1)
+#     n_repeats = windows_list[0].shape[0]
+#     short_labels = torch.tensor([np.repeat(label, repeats=n_repeats) for label in label_list])
+#     labels = short_labels.flatten(start_dim=0, end_dim=1)
 
-    # actions = F.one_hot(short_labels, num_classes=5).float()
-    # flat_actions = actions.flatten(start_dim=0, end_dim=1)
-    if return_lists:
-        return flat_windows, labels, windows_list, label_list
+#     # actions = F.one_hot(short_labels, num_classes=5).float()
+#     # flat_actions = actions.flatten(start_dim=0, end_dim=1)
+#     if return_lists:
+#         return flat_windows, labels, windows_list, label_list
 
-    return flat_windows, labels
+#     return flat_windows, labels
 
 # def get_raw_mad_dataset(eval_path, window_size, overlap, skip_person=None):
 #     person_folders = [p for p in os.listdir(eval_path) if p != ".DS_Store"]
@@ -380,14 +392,8 @@ def mad_labels_to_actions(labels: list, recording_strength: float = 1.0):
     
     assert labels.max() <= 6 and labels.min() >= 0, "Labels should be in range [0, 6]"
 
-    actions = torch.zeros(len(labels), 3)
-    # labels == 0 is Rest
-    actions[labels == 1, 0] = 1
-    actions[labels == 2, 0] = -1
-    actions[labels == 3, 1] = 1
-    actions[labels == 4, 1] = -1
-    actions[labels == 5, 2] = 1
-    actions[labels == 6, 2] = -1
+    actions = np.stack([MAD_LABELS_TO_DOF[label] for label in labels], axis=0)
+    actions = torch.tensor(actions, dtype=torch.float32)
 
     actions *= recording_strength
     return actions
@@ -410,6 +416,7 @@ def mad_augmentation(
         sample_emg (torch.tensor): sampled emgs windows. size=[num_augmentation, num_channels, window_size]
         sample_actions (torch.tensor): sampled actions. size=[num_augmentation, act_dim]
     """
+    assert torch.all(actions == 0, dim=1).any(), "Baseline action (0, 0, 0) required for augmentation"
     idx_baseline = [i for i in range(len(actions)) if torch.all(actions[i] == 0)][0]
     idx_pos = [i for i in range(len(actions)) if torch.any(actions[i] > 0)]
     idx_neg = [i for i in range(len(actions)) if torch.any(actions[i] < 0)]
@@ -474,7 +481,7 @@ if __name__ == "__main__":
         desired_labels=desired_labels,
     )
     assert len(emg) == len(desired_labels)
-    assert labels == desired_labels
+    assert all([l in desired_labels for l in labels])
     assert all([a.shape[-1] == config.n_channels for a in emg])
     assert all([np.all(np.abs(a) <= 1.) for a in emg])
 
