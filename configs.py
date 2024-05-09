@@ -90,12 +90,14 @@ class EncoderConfig(BaseModel):
 
 
 class SimulatorConfig(BaseModel):
+    noise: float = 0.1
+    base_noise: float = 0.01
     n_bursts: int = 1
-    recording_strength: float = 0.8
+    recording_strength: float = 1.0
 
 
 class PretrainConfig(BaseModel):
-    epochs: int = 90
+    epochs: int = 50
     num_augmentation: int = 10_000
     augmentation_distribution: str = "uniform" # choices=["uniform", "normal"]
     train_ratio: float = 0.8

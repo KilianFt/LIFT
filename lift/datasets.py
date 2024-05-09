@@ -461,7 +461,8 @@ def mad_augmentation(
             (1 - is_pos) * abs_action * neg_component
         )
 
-    sample_emg = sample_emg / act_dim + sample_baseline
+    # sample_emg = sample_emg / act_dim + sample_baseline
+    sample_emg = sample_emg / sample_actions.abs().mean(dim=-1)[:, None, None] + sample_baseline
     sample_emg = torch.clip(sample_emg, -1, 1)
     
     return sample_emg, sample_actions

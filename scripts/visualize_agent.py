@@ -38,13 +38,10 @@ def visualize_encoder(config: BaseConfig, encoder_type, sample_mean=False):
         cat_obs=True, 
         cat_keys=config.teacher.env_cat_keys,
         render_mode="human",
-        max_episode_steps=400,
+        max_episode_steps=100,
     )
     sim = WindowSimulator(
-        action_size=config.action_size, 
-        num_bursts=config.simulator.n_bursts, 
-        num_channels=config.n_channels,
-        window_size=config.window_size, 
+        config,
         return_features=True,
     ) 
     sim.fit_params_to_mad_sample(
@@ -78,13 +75,10 @@ def visualize_user(config: BaseConfig, encoder_type, sample_mean=False):
         cat_obs=True, 
         cat_keys=config.teacher.env_cat_keys,
         render_mode="human",
-        max_episode_steps=400,
+        max_episode_steps=100,
     )
     sim = WindowSimulator(
-        action_size=config.action_size, 
-        num_bursts=config.simulator.n_bursts, 
-        num_channels=config.n_channels,
-        window_size=config.window_size, 
+        config,
         return_features=True,
     ) 
     sim.fit_params_to_mad_sample(

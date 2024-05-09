@@ -138,11 +138,7 @@ def main():
     # validation setup
     teacher = load_teacher(config)
     sim = WindowSimulator(
-        action_size=config.action_size, 
-        num_bursts=config.simulator.n_bursts, 
-        num_channels=config.n_channels,
-        window_size=config.window_size,
-        recording_strength=config.simulator.recording_strength,
+        config,
         return_features=True,
     )
     sim.fit_params_to_mad_sample(

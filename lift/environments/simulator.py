@@ -1,18 +1,19 @@
-import copy
-import pickle
+import logging
 
 import numpy as np
-import matplotlib.pyplot as plt
+from libemg.utils import get_windows
 
 import torch
-import torch.nn.functional as F
 import torch.distributions as torch_dist
 
-from libemg.utils import get_windows
-from lift.datasets import load_mad_person_trial, compute_features
+from tensordict import TensorDict
 
-# TODO
-# - how to handle action transitions
+from lift.datasets import load_mad_person_trial, compute_features
+from lift.datasets import MAD_LABELS_TO_DOF
+
+
+logging.basicConfig(level=logging.INFO)
+
 
 class FakeSimulator:
     def __init__(self, action_size=4, features_per_action=4, noise=0.1):
@@ -39,41 +40,38 @@ class WindowSimulator:
     """Assume equal burst durations, only tune ranges and biases"""
     def __init__(
             self, 
-            action_size=3, 
-            num_bursts=3, 
-            num_channels=8, 
-            window_size=200, 
-            noise=0.1,
-            recording_strength=0.5,
-            num_features=4, 
+            config,
             return_features=False,
         ):
-        # times 2 cause 1 action per direction of dof
+        self.num_features = 4
         self.return_features = return_features
-        self.action_size = action_size
-        self.num_actions = action_size * 2
-        self.num_bursts = num_bursts
-        self.num_channels = num_channels
-        self.window_size = window_size
-        self.burst_durations = [window_size // num_bursts] * (self.num_bursts - 1)
-        self.burst_durations = self.burst_durations + [window_size - int(np.sum(self.burst_durations))]
+        self.action_size = config.action_size
+        self.num_bursts = config.simulator.n_bursts
+        self.num_channels = config.n_channels
+        self.window_size = config.window_size
+        self.burst_durations = [self.window_size // self.num_bursts] * (self.num_bursts - 1)
+        self.burst_durations = self.burst_durations + [self.window_size - int(np.sum(self.burst_durations))]
         
         # init params
-        self.bias_range = torch.ones(self.num_bursts, self.num_actions, self.num_channels)
-        self.emg_range = torch.ones(self.num_bursts, self.num_actions, self.num_channels)
-        self.noise = noise
-        self.recording_strength = recording_strength # scaling value that equals the recording (normal strength)
+        self.biases = TensorDict({
+            'baseline': torch.zeros(self.num_channels),
+            'positive': torch.zeros(self.action_size, self.num_channels),
+            'negative': torch.zeros(self.action_size, self.num_channels),
+        })
+        self.limits = TensorDict({
+            'baseline': torch.ones(self.num_channels),
+            'positive': torch.ones(self.action_size, self.num_channels),
+            'negative': torch.ones(self.action_size, self.num_channels),
+        })
 
-        self.bias_range_shape = [self.num_bursts, self.num_actions, self.num_channels]
-        self.emg_range_shape = [self.num_bursts, self.num_actions, self.num_channels]
+        self.noise = config.simulator.noise
+        self.base_noise = config.simulator.base_noise
+        # scaling value that equals the recording (normal strength)
+        self.recording_strength = config.simulator.recording_strength 
 
-        feature_size = num_features * num_channels
+        feature_size = self.num_features * self.num_channels
         self.feature_means = torch.zeros(feature_size)
         self.feature_stds = torch.ones(feature_size)
-    
-    def set_params(self, bias_range, emg_range):
-        self.bias_range = bias_range
-        self.emg_range = emg_range
 
 
     def fit_normalization_params(self):
@@ -86,94 +84,130 @@ class WindowSimulator:
     def get_norm_features(self, emg_window):
         features = compute_features(emg_window)
         return (features - self.feature_means) / self.feature_stds
+
     
-    def __call__(self, actions):
-        """Map fetch actions to emg windows"""
+    """Map fetch actions to emg windows"""
+    def __call__(self, actions, no_clip=False):
         if not isinstance(actions, torch.Tensor):
             actions = torch.tensor(actions, dtype=torch.float32).clone()
 
         assert len(actions.shape) > 1, "Actions should be a 2D tensor"
-        if actions.shape[-1] > self.action_size:
-            # TODO maybe warn when automatically truncating?
+
+        act_dim = actions.shape[-1]
+
+        if act_dim > self.action_size:
             actions = actions[..., :self.action_size]
 
-        # actions[actions.abs() < .1] = 0 # filter low amplitude noise
+        # shape: [n_actions, window_size, num_channels]
+        base_limits = self.limits['baseline']
+        base_bias = self.biases['baseline']
+        base_limits += (torch.randn_like(base_limits) * 2 - 1) * self.base_noise
+        base_bias += (torch.randn_like(base_bias) * 2 - 1) * self.base_noise
 
-        # find scaling for each action to account for movement strength
-        scaling = torch.zeros((actions.shape[0], actions.shape[1]*2))
-        for action_idx, action in enumerate(actions):
-            for i, value in enumerate(action):
-                idx = i * 2 + (value < 0).type(torch.int)
-                scaling[action_idx, idx] = value.abs()
-        scaling = scaling / self.recording_strength
+        sample_baseline = torch_dist.Uniform(-base_limits,
+                                             base_limits
+                                             ).sample((actions.shape[0], self.window_size))
+        sample_baseline += base_bias
+        
+        sample_emg = torch.zeros((actions.shape[0], self.window_size, self.num_channels))
 
-        biases, limits = self.bias_range.clone(), self.emg_range.clone()
+        positive_actions = actions.clone() # [n_actions, act_dim]
+        positive_actions[positive_actions < 0] = 0
+        negative_actions = actions.clone() # [n_actions, act_dim]
+        negative_actions[negative_actions > 0] = 0
 
-        biases += (torch.randn_like(biases) * 2 - 1) * self.noise
-        limits += (torch.randn_like(limits) * 2 - 1) * self.noise
+        # limits: [n_actions, act_dim] * [act_dim, num_channels] -> [n_actions, num_channels]
+        pos_sample_limits = positive_actions.abs() @ self.limits['positive'] # [n_actions, num_channels]
+        neg_sample_limits = negative_actions.abs() @ self.limits['negative'] # [n_actions, num_channels]
+        sample_limits = pos_sample_limits + neg_sample_limits
 
-        # map for active actions
-        action_map = (scaling.abs() > 0).type(torch.float32)
+        assert (sample_limits >= 0).all(), "Limits should be positive"
 
-        # get biases and limits for each action
-        # both are superpositions of the single action biases and limits
-        action_biases = torch.einsum('ijk, nj -> ink', biases, action_map)
-        action_limits = torch.einsum('ijk, nj -> ink', limits, scaling)
+        sample_limits += (torch.randn_like(sample_limits) * 2 - 1) * self.noise
+        sample_limits.clip_(min=1e-6)
 
-        action_limits.clip_(min=1e-3)
+        # sample_emg shape [n_actions, window_size, num_channels]
+        sample_emg = torch_dist.Uniform(-sample_limits,
+                                         sample_limits
+                                         ).sample((self.window_size,)).permute(1,0,2)
+        
+        # biases
+        # do we scale this by actions?
+        pos_sample_biases = positive_actions.abs() @ self.biases['positive']
+        neg_sample_biases = negative_actions.abs() @ self.biases['negative']
+        sample_biases = pos_sample_biases + neg_sample_biases
 
-        window_parts = [None] * self.num_bursts
-        for i in range(self.num_bursts):
-            window_parts[i] = (torch_dist.Uniform(-action_limits, action_limits).sample((200,)) + action_biases).permute(1, 2, 3, 0)
-        window = torch.cat(window_parts, dim=-3).squeeze(0)
-        # is it fine that values can be > 1 or < -1?
+        sample_biases += (torch.randn_like(sample_biases) * 2 - 1) * self.noise
+
+        sample_emg += sample_biases[:, None, :]
+
+        sample_emg = sample_emg / actions.abs().sum(dim=-1)[:, None, None] + sample_baseline
+        # sample_emg = sample_emg / act_dim  + sample_baseline
+        # sample_emg = sample_emg + sample_baseline
+
+        # shape [n_actions, num_channels, window_size]
+        sample_emg = sample_emg.permute(0, 2, 1)
+
+        # noise
+        # sample_emg += (torch.randn_like(sample_emg) * 2 - 1) * self.noise
+        if not no_clip:
+            sample_emg = torch.clip(sample_emg, -1, 1)
 
         if self.return_features:
-            return self.get_norm_features(window)
+            return self.get_norm_features(sample_emg)
         
-        return window
+        return sample_emg
+
+
+    """Calculate the upper limit of the uniform distribution for a given emg sample"""
+    def _get_action_emg_limit(self, action_emg):
+        # remove bias for limits
+        action_emg -= action_emg.mean(dim=0)
+        # get 95% quantile of abs values
+        idx = min(int(0.95 * len(action_emg)), len(action_emg) - 1)
+        limit = action_emg.abs().sort(dim=0)[0][idx]
+        # scale by recording strength
+        limit = limit / self.recording_strength
+        return limit
+
+    def _get_biases_and_limits(self, emg, actions):
+        biases = self.biases.copy()
+        limits = self.limits.copy()
+
+        for s_idx, action in enumerate(actions):
+            action_emg = torch.tensor(emg[s_idx], dtype=torch.float32)
+            action = torch.tensor(action, dtype=torch.float32)
+
+            if (action == 0).all():
+                biases['baseline'] = action_emg.mean(dim=0)
+                limits['baseline'] = self._get_action_emg_limit(action_emg)
+            else:
+                idx = torch.argmax(torch.abs(action))
+                key = 'negative' if action[idx] < 0 else 'positive'
+                biases[key][idx, :] = action_emg.mean(dim=0)
+                action_limit = self._get_action_emg_limit(action_emg) - limits['baseline']
+                limits[key][idx, :] = action_limit.clip(min=0.)
+
+        return biases, limits
 
     """TODO: 
     make simulator fitting and sampling consistent with mad augmentation
     maybe aggregate all mad samples and feed as input to this function in case we want to fit to multiple participants
     """
-    def fit_params_to_mad_sample(self, data_path, emg_range: list = [-128, 127], desired_labels: list = [1, 2, 3, 4, 5, 6]):
-        # 0 = Neutral, 1 = Radial Deviation, 2 = Wrist Flexion, 3 = Ulnar Deviation, 4 = Wrist Extension, 5 = Hand Close, 6 = Hand Open
-        # TODO fit neutral
-        emg_list, label_list = load_mad_person_trial(
+    def fit_params_to_mad_sample(self, data_path, emg_range: list = [-128, 127], desired_labels: list = [0, 1, 2, 3, 4, 5, 6]):
+        emg, labels = load_mad_person_trial(
             data_path, 
             num_channels=self.num_channels,
             emg_range=emg_range,
             desired_labels=desired_labels,
         )
-        sort_id = np.argsort(label_list)
-        emg_list = [emg_list[i] for i in sort_id]
-        # switch emg_list idx 1 and 2 to have opposite movements next to each other
-        # TODO fix this
-        # emg_list_copy = copy.deepcopy(emg_list)
-        # emg_list[1], emg_list[2] = emg_list_copy[2], emg_list_copy[1]
+        actions = [MAD_LABELS_TO_DOF[l] for l in labels]
+        self.biases, self.limits = self._get_biases_and_limits(emg, actions)
+        logging.info('Fitted simulator to MAD sample')
 
-        min_len = min([len(emg) for emg in emg_list])
-        short_emgs = [emg[:min_len,:] for emg in emg_list]
-        windows_list = [get_windows(s_emg, 200, 200) for s_emg in short_emgs]
-        windows = torch.from_numpy(np.stack(windows_list, axis=0)).to(torch.float32)
-
-        mean_windows = windows.mean(dim=1)
-        emg_bias = mean_windows.mean(dim=-1)
-        window_wo_mean = mean_windows - emg_bias[:,:,None]
-        emg_limits = window_wo_mean.abs().max(dim=-1)[0]
-
-        self.set_params(emg_bias.unsqueeze(0), emg_limits.unsqueeze(0))
-
-        # compute feature means and stds
-        # flat_windows = windows.flatten(start_dim=0, end_dim=1)
-        # features = compute_features(flat_windows)
-        # self.feature_means = features.mean(dim=0)
-        # self.feature_stds = features.std(dim=0)
 
 if __name__ == "__main__":
     from configs import BaseConfig
-    from lift.datasets import MAD_LABELS_TO_DOF
     import matplotlib.pyplot as plt
 
     config = BaseConfig()
@@ -182,14 +216,69 @@ if __name__ == "__main__":
         num_bursts=config.simulator.n_bursts, 
         num_channels=config.n_channels,
         window_size=config.window_size, 
-        return_features=False
+        recording_strength=config.simulator.recording_strength,
+        return_features=False,
+        noise=0.0,
     )
     sim.fit_params_to_mad_sample(
-        str(config.mad_data_path / "Female0/training0/")
+        config.mad_data_path / "Female0" / "training0"
     )
-    single_actions = torch.from_numpy(MAD_LABELS_TO_DOF).to(torch.float32) * 0.5
+    single_actions = torch.from_numpy(MAD_LABELS_TO_DOF).to(torch.float32) * config.simulator.recording_strength
     out = sim(single_actions)
 
-    fig, ax = plt.subplots(1, 1, figsize=(6, 4))
-    ax.plot(out[:, 0].T)
-    plt.show()
+    assert out.min() >= -1 and out.max() <= 1, "Values should be in range [-1, 1]"
+
+    # verify that generated emg is similar to the MAD dataset
+    emg, labels = load_mad_person_trial(
+            config.mad_data_path / "Female0" / "training0", 
+            num_channels=config.n_channels,
+        )
+    actions = [MAD_LABELS_TO_DOF[l] for l in labels]
+
+    emg_means, emg_maxs = [], []
+    for action_emg in emg:
+        emg_means.append(torch.tensor(action_emg, dtype=torch.float32).mean(dim=0))
+        emg_maxs.append(torch.tensor(action_emg, dtype=torch.float32).abs().max(dim=0)[0])
+
+    emg_means = torch.stack(emg_means, dim=0)
+    emg_maxs = torch.stack(emg_maxs, dim=0)
+
+    # test biases
+    pos_idxs = [1, 2, 5]
+    neg_idxs = [3, 4, 6]
+
+    sim_mean = out.mean(dim=-1)
+
+    base_mse = torch.mean(torch.pow(sim_mean[0] - emg_means[0], 2))
+    pos_mse = torch.mean(torch.pow(sim_mean[pos_idxs] - emg_means[pos_idxs], 2))
+    neg_mse = torch.mean(torch.pow(sim_mean[neg_idxs] - emg_means[neg_idxs], 2))
+
+    logging.info('--- Biases ---')
+    logging.info(f'Baseline MSE: {base_mse}')
+    logging.info(f'Positive MSE: {pos_mse}')
+    logging.info(f'Negative MSE: {neg_mse}')
+
+    assert base_mse < 5e-3, "Baseline mean should be close to MAD mean"
+    assert pos_mse < 5e-3, "Positive mean should be close to MAD mean"
+    assert neg_mse < 5e-3, "Negative mean should be close to MAD mean"
+
+    # test limits
+    sim_max = out.abs().max(dim=-1)[0]
+
+    base_max_mse = torch.mean(torch.pow(sim_max[0] - emg_maxs[0], 2))
+    pos_max_mse = torch.mean(torch.pow(sim_max[pos_idxs] - emg_maxs[pos_idxs], 2))
+    neg_max_mse = torch.mean(torch.pow(sim_max[neg_idxs] - emg_maxs[neg_idxs], 2))
+
+    logging.info('--- Limits ---')
+    logging.info(f'Baseline MSE: {base_max_mse}')
+    logging.info(f'Positive MSE: {pos_max_mse}')
+    logging.info(f'Negative MSE: {neg_max_mse}')
+
+    assert base_max_mse < 5e-3, "Baseline mean should be close to MAD mean"
+    assert pos_max_mse < 5e-3, "Positive mean should be close to MAD mean"
+    assert neg_max_mse < 5e-3, "Negative mean should be close to MAD mean"
+
+    # fig, ax = plt.subplots(1, 1, figsize=(6, 4))
+    # ax.plot(out[:, 0].T)
+    # plt.show()
+    logging.info('Simulator test passed')
