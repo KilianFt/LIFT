@@ -90,8 +90,9 @@ class EncoderConfig(BaseModel):
 
 
 class SimulatorConfig(BaseModel):
-    noise: float = 0.1
-    base_noise: float = 0.01
+    bias_noise: float = 0.005
+    limits_noise: float = 0.01
+    base_noise: float = 0.005
     n_bursts: int = 1
     recording_strength: float = 1.0
 

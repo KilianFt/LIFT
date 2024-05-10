@@ -100,26 +100,23 @@ def train_offline_rl(data, teacher, sim, encoder, config: BaseConfig):
 
 
 def main():
-    config = BaseConfig(**wandb.config)
+    config = BaseConfig()
     L.seed_everything(config.seed)
     if config.use_wandb:
-        _ = wandb.init(project='lift', tags='align_teacher')
+        _ = wandb.init(project='lift', tags='offline_rl')
         config = BaseConfig(**wandb.config)
         wandb.config.update(config.model_dump())
 
     teacher = load_teacher(config)
     sim = WindowSimulator(
-        action_size=config.action_size, 
-        num_bursts=config.simulator.n_bursts, 
-        num_channels=config.n_channels,
-        window_size=config.window_size, 
+        config,
         return_features=True,
     )
     sim.fit_params_to_mad_sample(
         (config.mad_data_path / "Female0"/ "training0").as_posix()
     )
 
-    trainer = torch.load(config.models_path / 'encoder.pt')
+    trainer = torch.load(config.models_path / 'mi.pt')
     encoder = trainer.encoder
 
     rollout_file = config.rollout_data_path / f"data.pkl"
@@ -128,7 +125,7 @@ def main():
 
     train_offline_rl(data, teacher, sim, encoder, config)
 
-    torch.save(trainer, config.models_path / 'encoder_offline_rl.pt')
+    torch.save(trainer, config.models_path / 'offline_rl.pt')
 
 
 if __name__ == "__main__":

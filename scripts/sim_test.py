@@ -1,16 +1,29 @@
 import torch
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, random_split, Dataset
 import lightning as L 
 from pytorch_lightning.loggers import WandbLogger
 
-from lift.datasets import EMGSLDataset
-from lift.controllers import EMGPolicy, GaussianEncoder
-from lift.simulator.simulator import WindowSimulator
+# from lift.datasets import EMGSLDataset
+from lift.controllers import EMGPolicy, TanhGaussianEncoder
+from lift.environments.simulator import WindowSimulator
 from configs import BaseConfig
 
 
+class EMGSLDataset(Dataset):
+    """Supervised learning dataset"""
+    def __init__(self, obs, actions):
+        self.obs = obs
+        self.actions = actions
+
+    def __len__(self):
+        return len(self.obs)
+    
+    def __getitem__(self, idx):
+        return self.obs[idx], self.actions[idx]
+
+
 def get_dataloaders(observations, actions, train_percentage=0.8, batch_size=32):
-    dataset = EMGSLDataset(obs=observations, action=actions)
+    dataset = EMGSLDataset(obs=observations, actions=actions)
 
     train_size = int(train_percentage * len(dataset))
     val_size = len(dataset) - train_size
@@ -23,18 +36,18 @@ def get_dataloaders(observations, actions, train_percentage=0.8, batch_size=32):
 
 def train(sim, actions, logger, config):
     features = sim(actions)
-    train_dataloader, val_dataloader = get_dataloaders(features, actions, batch_size=config.batch_size)
+    train_dataloader, val_dataloader = get_dataloaders(features, actions, batch_size=config.pretrain.batch_size)
 
     hidden_sizes = [config.encoder.hidden_size for _ in range(config.encoder.n_layers)]
  
-    model = GaussianEncoder(input_dim=config.feature_size,
+    model = TanhGaussianEncoder(input_dim=config.feature_size,
                     output_dim=config.action_size,
                     hidden_dims=hidden_sizes,
                     dropout=config.encoder.dropout,)
 
-    pl_model = EMGPolicy(lr=config.lr, model=model)
+    pl_model = EMGPolicy(lr=config.pretrain.lr, model=model)
     trainer = L.Trainer(
-        max_epochs=config.epochs, 
+        max_epochs=20, 
         log_every_n_steps=1, 
         check_val_every_n_epoch=1,
         enable_checkpointing=False, 
@@ -51,15 +64,14 @@ def main():
     L.seed_everything(100)
 
     config = BaseConfig()
-    sim = WindowSimulator(action_size=config.action_size,
-                          num_bursts=config.simulator.n_bursts,
-                          num_channels=config.n_channels,
-                          window_size=config.window_size,
+    config.simulator.base_noise = 0.0
+    config.simulator.limits_noise = 0.0
+    config.simulator.bias_noise = 0.0
+    sim = WindowSimulator(config,
                           return_features=True)
     sim.fit_params_to_mad_sample(
         str(config.mad_data_path / "Female0/training0/")
     )
-    sim.fit_normalization_params()
 
     logger = WandbLogger(project='lift', tags='sim_testing')
 
@@ -78,6 +90,8 @@ def main():
     # test on random actions
     actions = torch.rand(64_000, 3) * 2 - 1
     random_val = train(sim, actions, logger, config)
+
+    return random_val
 
     # print(f"val loss\nsingle: {single_val[-1]['val_loss']:.4f}\nsimultaneous: {simul_val[-1]['val_loss']:.4f}\nrandom: {random_val[-1]['val_loss']:.4f}")
 

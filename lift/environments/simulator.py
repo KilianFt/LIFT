@@ -64,7 +64,8 @@ class WindowSimulator:
             'negative': torch.ones(self.action_size, self.num_channels),
         })
 
-        self.noise = config.simulator.noise
+        self.bias_noise = config.simulator.bias_noise
+        self.limits_noise = config.simulator.limits_noise
         self.base_noise = config.simulator.base_noise
         # scaling value that equals the recording (normal strength)
         self.recording_strength = config.simulator.recording_strength 
@@ -123,7 +124,7 @@ class WindowSimulator:
 
         assert (sample_limits >= 0).all(), "Limits should be positive"
 
-        sample_limits += (torch.randn_like(sample_limits) * 2 - 1) * self.noise
+        sample_limits += (torch.randn_like(sample_limits) * 2 - 1) * self.limits_noise
         sample_limits.clip_(min=1e-6)
 
         # sample_emg shape [n_actions, window_size, num_channels]
@@ -137,12 +138,13 @@ class WindowSimulator:
         neg_sample_biases = negative_actions.abs() @ self.biases['negative']
         sample_biases = pos_sample_biases + neg_sample_biases
 
-        sample_biases += (torch.randn_like(sample_biases) * 2 - 1) * self.noise
-
+        sample_biases += (torch.randn_like(sample_biases) * 2 - 1) * self.bias_noise
         sample_emg += sample_biases[:, None, :]
 
-        sample_emg = sample_emg / actions.abs().sum(dim=-1)[:, None, None] + sample_baseline
-        # sample_emg = sample_emg / act_dim  + sample_baseline
+        # combine baseline and actions
+        # magnitude = actions.abs().sum(dim=-1).clip(min=1.0)
+        # sample_emg = sample_emg / magnitude[:, None, None] + sample_baseline
+        sample_emg = sample_emg / act_dim  + sample_baseline
         # sample_emg = sample_emg + sample_baseline
 
         # shape [n_actions, num_channels, window_size]
@@ -211,26 +213,22 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
     config = BaseConfig()
+    config.simulator.noise = 0.0
     sim = WindowSimulator(
-        action_size=config.action_size, 
-        num_bursts=config.simulator.n_bursts, 
-        num_channels=config.n_channels,
-        window_size=config.window_size, 
-        recording_strength=config.simulator.recording_strength,
+        config,
         return_features=False,
-        noise=0.0,
     )
     sim.fit_params_to_mad_sample(
         config.mad_data_path / "Female0" / "training0"
     )
     single_actions = torch.from_numpy(MAD_LABELS_TO_DOF).to(torch.float32) * config.simulator.recording_strength
-    out = sim(single_actions)
+    out = sim(single_actions, no_clip=True)
 
     assert out.min() >= -1 and out.max() <= 1, "Values should be in range [-1, 1]"
 
     # verify that generated emg is similar to the MAD dataset
     emg, labels = load_mad_person_trial(
-            config.mad_data_path / "Female0" / "training0", 
+            config.mad_data_path / "Female0" / "training0",
             num_channels=config.n_channels,
         )
     actions = [MAD_LABELS_TO_DOF[l] for l in labels]

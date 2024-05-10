@@ -32,7 +32,6 @@ def validate(env, teacher, sim, encoder, logger):
         n_steps=5000,
         terminate_on_done=False,
         reset_on_done=True,
-        sample_mean=True,
     )
     mean_rwd = data["rwd"].mean()
     std_rwd = data["rwd"].std()

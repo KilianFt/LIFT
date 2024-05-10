@@ -289,7 +289,7 @@ class EMGPolicy(L.LightningModule):
         x, y = val_batch
         predictions = self.model.sample(x)
         val_loss = self.criterion(predictions, y)
-        self.log("val_loss", val_loss)
+        self.log("val_loss", val_loss, prog_bar=True)
 
         return val_loss
 
