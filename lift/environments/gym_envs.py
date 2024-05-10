@@ -41,14 +41,8 @@ class NpGymEnv(gym.Wrapper):
 
         # special handle action space
         if env_name == "FetchReachDense-v2":
-            action_shape = list(self.action_space.shape)
-            action_shape[0] -= 1
-            self.action_space = Box(
-                low=self.action_space.low[..., :-1], 
-                high=self.action_space.high[..., :-1], 
-                shape=tuple(action_shape),
-                dtype=self.action_space.dtype,
-            )
+            new_act_dim = self.action_space.shape[-1] - 1
+            self.action_space = resize_gym_box_space(self.action_space, new_act_dim)
     
     def reset(self, **kwargs):
         obs = self.env.reset(**kwargs)
@@ -73,7 +67,32 @@ class NpGymEnv(gym.Wrapper):
         if self.cat_obs:
             obs = {"observation": np.concatenate([obs[k] for k in self.cat_keys], axis=-1)}
         return obs
-    
+
+
+def resize_gym_box_space(space: Box, new_dim: int):
+    new_shape = list(space.shape)
+    new_shape[-1] = new_dim
+    if new_dim < space.shape[-1]:
+        new_space = Box(
+            low=space.low[..., :-1], 
+            high=space.high[..., :-1], 
+            shape=tuple(new_shape),
+            dtype=space.dtype,
+        )
+    elif new_dim > space.shape[-1]:
+        diff_dim = new_dim - space.shape[-1]
+        box_shape = list(space.low.shape[:-1]) + [diff_dim]
+        new_space = Box(
+            low=np.concatenate([space.low, np.ones(box_shape) * -np.inf]), 
+            high=np.concatenate([space.high, np.ones(box_shape) * np.inf]), 
+            shape=tuple(new_shape),
+            dtype=space.dtype,
+        )
+    else:
+        new_space = space
+
+    return new_space
+
 if __name__ == "__main__":
     # test basic compatibility
     env = NpGymEnv("FetchReachDense-v2", cat_obs=False)
