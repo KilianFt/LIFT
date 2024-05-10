@@ -1,3 +1,4 @@
+from typing import Sequence, Tuple
 import torch
 import torch.nn as nn
 from tensordict import TensorDictBase
@@ -16,48 +17,80 @@ from torchrl.envs.transforms import (
     StepCounter,
 )
 from torchrl.envs import Transform
-from torchrl.data import UnboundedContinuousTensorSpec
-from torchrl.envs.transforms.transforms import _apply_to_composite
 from torchrl.collectors import SyncDataCollector
 from torchrl.data import TensorDictPrioritizedReplayBuffer, TensorDictReplayBuffer
 from torchrl.data.replay_buffers.storages import LazyMemmapStorage
 
 
-class ExpandAction(Transform):
-    """ Transforms action from 3D to 4D by adding a zero column
+class ResizeActionSpace(Transform):
+    """ Transforms size of action space by reducing from the last dimension or zero padding
 
     Args:
         in_keys: keys that are considered for transform
         out_keys: keys after transform
+        new_size: target action size
 
     Example:
-        >>> t_act = ExpandAction(in_keys=["action"], out_keys=["action"])
+        >>> t_act = ExpandAction(in_keys=["action"], out_keys=["action"], new_size=4)
         >>> env.append_transform(t_act)
         >>> check_env_specs(env)
         >>> data = env.reset()
         >>> print(data["emg])
 
     """
-    def _step(
-        self, tensordict: TensorDictBase, next_tensordict: TensorDictBase
-    ) -> TensorDictBase:
-        return next_tensordict
+    def __init__(
+        self, 
+        old_dim: int,
+        new_dim: int,
+        in_keys: Sequence[str | Tuple[str, ...]] = None, 
+        out_keys: Sequence[str | Tuple[str, ...]] | None = None, 
+        in_keys_inv: Sequence[str | Tuple[str, ...]] | None = None, 
+        out_keys_inv: Sequence[str | Tuple[str, ...]] | None = None,        
+    ):
+        super().__init__(in_keys, out_keys, in_keys_inv, out_keys_inv)
+        self.old_dim = old_dim
+        self.new_dim = new_dim
 
     def _inv_apply_transform(self, action: torch.Tensor) -> torch.Tensor:
-        if action.shape[-1] == 3:
-            env_action = torch.cat((action, torch.zeros(*action.shape[:-1], 1)), dim=-1)
+        if action.shape[-1] < self.old_dim:
+            diff_dim = self.old_dim - action.shape[-1]
+            env_action = torch.cat((action, torch.zeros(*action.shape[:-1], diff_dim)), dim=-1)
+        elif action.shape[-1] > self.old_dim:
+            env_action = action[..., :self.old_dim]
         else:
             env_action = action
 
         return env_action
     
-    @_apply_to_composite
-    def transform_action_spec(self, action_spec):
-        return UnboundedContinuousTensorSpec(
-            shape=(3,),
-            dtype=torch.float32,
-            device=action_spec.device,
-        )
+    def transform_input_spec(self, input_spec):
+        full_action_spec = input_spec["full_action_spec"]
+        action_dim = full_action_spec["action"].shape
+        if action_dim[-1] < self.new_dim:
+            diff_dim = self.new_dim - action_dim[-1]
+            new_action_dim = list(action_dim)
+            new_action_dim[-1] = self.new_dim
+            full_action_spec["action"].shape = torch.Size(new_action_dim)
+            full_action_spec["action"].space.low = torch.cat(
+                [
+                    full_action_spec["action"].space.low, 
+                    torch.zeros(*action_dim[:-1], diff_dim)
+                ], dim=-1,
+            )
+            full_action_spec["action"].space.high = torch.cat(
+                [
+                    full_action_spec["action"].space.low, 
+                    torch.zeros(*action_dim[:-1], diff_dim)
+                ], dim=-1,
+            )
+        elif action_dim[-1] > self.new_dim:
+            new_action_dim = list(action_dim)
+            new_action_dim[-1] = self.new_dim
+            full_action_spec["action"].shape = torch.Size(new_action_dim)
+            full_action_spec["action"].space.low = full_action_spec["action"].space.low[..., :self.new_dim]
+            full_action_spec["action"].space.high = full_action_spec["action"].space.high[..., :self.new_dim]
+        input_spec["full_action_spec"] = full_action_spec
+        return input_spec
+
 
 def gym_env_maker(env_name, cat_obs=True, cat_keys=None, device="cpu"):
     with set_gym_backend("gymnasium"):
@@ -67,10 +100,18 @@ def gym_env_maker(env_name, cat_obs=True, cat_keys=None, device="cpu"):
             in_keys = raw_env.observation_spec.keys() if cat_keys is None else cat_keys
             assert all([k in raw_env.observation_spec.keys() for k in in_keys])
         
-        env = TransformedEnv(
-            raw_env, 
-            CatTensors(in_keys=in_keys, out_key="observation")
-        )
+        transforms = [CatTensors(in_keys=in_keys, out_key="observation")]
+        if env_name == "FetchReachDense-v2":
+            transforms.append(
+                ResizeActionSpace(
+                    old_dim=raw_env.action_space.shape[0],
+                    new_dim=raw_env.action_space.shape[0] - 1,
+                    in_keys_inv=["action"], 
+                    out_keys_inv=["action"], 
+                )
+            )
+        
+        env = TransformedEnv(raw_env, Compose(*transforms))
     return env
 
 def apply_env_transforms(env, max_episode_steps=1000):
@@ -81,7 +122,6 @@ def apply_env_transforms(env, max_episode_steps=1000):
             StepCounter(max_episode_steps),
             DoubleToFloat(),
             RewardSum(),
-            ExpandAction(in_keys_inv=["action"], out_keys_inv=["action"]),
         ),
     )
     return transformed_env
