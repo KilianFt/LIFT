@@ -1,6 +1,7 @@
 import numpy as np
 import gymnasium as gym
 from gymnasium.spaces.dict import Dict
+from gymnasium.spaces.box import Box
 from gymnasium.utils.step_api_compatibility import step_api_compatibility
 
 class NpGymEnv(gym.Wrapper):
@@ -15,6 +16,7 @@ class NpGymEnv(gym.Wrapper):
                 if none and cat_obs=True, use sorted dict keys.
         """
         super().__init__(gym.make(env_name, **kwargs))
+        self.env_name = env_name
         self.observation_space = self.env.observation_space
         self.action_space = self.env.action_space
 
@@ -36,6 +38,17 @@ class NpGymEnv(gym.Wrapper):
                     )
                 }
             )
+
+        # special handle action space
+        if env_name == "FetchReachDense-v2":
+            action_shape = list(self.action_space.shape)
+            action_shape[0] -= 1
+            self.action_space = Box(
+                low=self.action_space.low[..., :-1], 
+                high=self.action_space.high[..., :-1], 
+                shape=tuple(action_shape),
+                dtype=self.action_space.dtype,
+            )
     
     def reset(self, **kwargs):
         obs = self.env.reset(**kwargs)
@@ -45,6 +58,10 @@ class NpGymEnv(gym.Wrapper):
         return obs
     
     def step(self, action):
+        # special handle action space
+        if self.env_name == "FetchReachDense-v2":
+            action = np.concatenate([action, np.zeros_like(action[..., :1])], axis=-1)
+            
         next_obs, rwd, done, info = step_api_compatibility(
             self.env.step(action), 
             output_truncation_bool=False
