@@ -206,7 +206,7 @@ class MITrainer(L.LightningModule):
         """Compute sample based kl divergence from teacher"""
         teacher_inputs = TensorDict({
             "observation": o,
-            "action": F.pad(z, (0, 1), value=0),
+            "action": z,
         })
 
         if self.kl_approx_method == "logp":
@@ -314,8 +314,6 @@ class EMGAgent:
                 act = dist.mode
             else:
                 act = dist.sample()
-            """TODO: properly address action dimension mismatch in emg env"""
-            act = F.pad(act, (0, 1), value=0) # pad zero to last action dimension
         return act.detach().numpy()
 
 
