@@ -7,7 +7,7 @@ from torchrl.envs.utils import check_env_specs
 from torchrl.data import ReplayBuffer, LazyTensorStorage, SliceSampler
 from tensordict import TensorDict
 
-from lift.environments.simulator import WindowSimulator
+from lift.environments.simulator import SimulatorFactory
 from lift.environments.emg_envs import EMGTransform
 
 from lift.teacher import load_teacher
@@ -108,12 +108,11 @@ def main():
         wandb.config.update(config.model_dump())
 
     teacher = load_teacher(config)
-    sim = WindowSimulator(
+    data_path = (config.mad_data_path / "Female0"/ "training0").as_posix()
+    sim = SimulatorFactory.create_class(
+        data_path,
         config,
         return_features=True,
-    )
-    sim.fit_params_to_mad_sample(
-        (config.mad_data_path / "Female0"/ "training0").as_posix()
     )
 
     trainer = torch.load(config.models_path / 'mi.pt')

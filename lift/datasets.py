@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from tensordict import TensorDict
 from torch.utils.data import Dataset, DataLoader, random_split
 from libemg.utils import get_windows
 from libemg.feature_extractor import FeatureExtractor
@@ -398,6 +399,35 @@ def mad_labels_to_actions(labels: list, recording_strength: float = 1.0):
     actions *= recording_strength
     return actions
 
+
+def interpolate_emg(base_emg, base_actions, actions):
+    # interpolate emg as: (abs - baseline) * act
+    # init emg samples with baseline
+    num_augmentation, act_dim = actions.shape
+
+    emg_baseline = base_emg['baseline']
+    idx_sample_baseline = torch.randint(len(emg_baseline), (num_augmentation,))
+    sample_baseline = emg_baseline[idx_sample_baseline]
+    sample_emg = torch.zeros(*[num_augmentation] + list(emg_baseline.shape)[1:])
+    for i in range(act_dim):
+        idx_sample_pos = torch.randint(len(emg_baseline), (num_augmentation,))
+        idx_sample_neg = torch.randint(len(emg_baseline), (num_augmentation,))
+        pos_component = base_emg['pos'][i][idx_sample_pos] / base_actions['pos'][i][i].abs()
+        neg_component = base_emg['neg'][i][idx_sample_neg] / base_actions['neg'][i][i].abs()
+        
+        abs_action = actions[:, i].abs().view(-1, 1, 1)
+        is_pos = 1 * (actions[:, i] > 0).view(-1, 1, 1)
+        sample_emg += (
+            is_pos * abs_action * pos_component + \
+            (1 - is_pos) * abs_action * neg_component
+        )
+
+    sample_emg = sample_emg / act_dim + sample_baseline
+    # sample_emg = sample_emg / sample_actions.abs().mean(dim=-1).clip(min=1.0)[:, None, None] + sample_baseline
+    sample_emg = torch.clip(sample_emg, -1, 1)
+    return sample_emg
+
+
 def mad_augmentation(
     emg: list[torch.Tensor], 
     actions: list[torch.Tensor], 
@@ -426,14 +456,19 @@ def mad_augmentation(
     emg = [el[:min_samples] for el in emg]
 
     emg_baseline = emg[idx_baseline]
-    emg_pos = torch.stack([emg[i] - emg_baseline for i in idx_pos])
-    emg_neg = torch.stack([emg[i] - emg_baseline for i in idx_neg])
+    base_emg = TensorDict({
+        'baseline': emg_baseline,
+        'pos': torch.stack([emg[i] - emg_baseline for i in idx_pos]),
+        'neg': torch.stack([emg[i] - emg_baseline for i in idx_neg]),
+    })
 
-    action_baseline = actions[idx_baseline]
-    action_pos = torch.stack([actions[i] for i in idx_pos])
-    action_neg = torch.stack([actions[i] for i in idx_neg])
-    
-    act_dim = action_baseline.shape[-1]
+    base_actions = TensorDict({
+        'baseline': actions[idx_baseline],
+        'pos': torch.stack([actions[i] for i in idx_pos]),
+        'neg': torch.stack([actions[i] for i in idx_neg]),
+    })
+
+    act_dim = actions.shape[-1]
 
     if augmentation_distribution == 'uniform':
         sample_actions = torch.rand(num_augmentation, act_dim) * 2 - 1
@@ -442,28 +477,7 @@ def mad_augmentation(
     else:
         raise ValueError("augmentation_distribution must be 'uniform' or 'normal'")
     
-    # init emg samples with baseline
-    idx_sample_baseline = torch.randint(len(emg_baseline), (num_augmentation,))
-    sample_baseline = emg_baseline[idx_sample_baseline]
-    
-    # interpolate emg as: (abs - baseline) * act
-    sample_emg = torch.zeros(*[num_augmentation] + list(emg_baseline.shape)[1:])
-    for i in range(act_dim):
-        idx_sample_pos = torch.randint(len(emg_baseline), (num_augmentation,))
-        idx_sample_neg = torch.randint(len(emg_baseline), (num_augmentation,))
-        pos_component = emg_pos[i][idx_sample_pos] / action_pos[i][i].abs()
-        neg_component = emg_neg[i][idx_sample_neg] / action_neg[i][i].abs()
-        
-        abs_action = sample_actions[:, i].abs().view(-1, 1, 1)
-        is_pos = 1 * (sample_actions[:, i] > 0).view(-1, 1, 1)
-        sample_emg += (
-            is_pos * abs_action * pos_component + \
-            (1 - is_pos) * abs_action * neg_component
-        )
-
-    sample_emg = sample_emg / act_dim + sample_baseline
-    # sample_emg = sample_emg / sample_actions.abs().mean(dim=-1).clip(min=1.0)[:, None, None] + sample_baseline
-    sample_emg = torch.clip(sample_emg, -1, 1)
+    sample_emg = interpolate_emg(base_emg, base_actions, sample_actions)
     
     return sample_emg, sample_actions
 

@@ -8,7 +8,7 @@ from configs import BaseConfig
 from lift.environments.gym_envs import NpGymEnv
 from lift.environments.emg_envs import EMGEnv
 from lift.environments.user_envs import UserEnv
-from lift.environments.simulator import WindowSimulator
+from lift.environments.simulator import SimulatorFactory
 from lift.environments.rollout import rollout
 
 from lift.teacher import load_teacher
@@ -98,12 +98,11 @@ def main():
         logger = None
     
     teacher = load_teacher(config)
-    sim = WindowSimulator(
+    data_path = (config.mad_data_path / "Female0"/ "training0").as_posix()
+    sim = SimulatorFactory.create_class(
+        data_path,
         config,
         return_features=True,
-    )
-    sim.fit_params_to_mad_sample(
-        (config.mad_data_path / "Female0"/ "training0").as_posix()
     )
 
     env = NpGymEnv(

@@ -90,6 +90,7 @@ class EncoderConfig(BaseModel):
 
 
 class SimulatorConfig(BaseModel):
+    parametric: bool = False
     bias_noise: float = 0.005
     limits_noise: float = 0.01
     base_noise: float = 0.005

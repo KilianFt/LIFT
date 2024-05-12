@@ -4,7 +4,7 @@ import torch
 from configs import BaseConfig
 from lift.environments.emg_envs import EMGEnv
 from lift.environments.user_envs import UserEnv
-from lift.environments.simulator import WindowSimulator
+from lift.environments.simulator import SimulatorFactory
 from lift.environments.gym_envs import NpGymEnv
 from lift.environments.rollout import rollout
 
@@ -40,12 +40,11 @@ def visualize_encoder(config: BaseConfig, encoder_type, sample_mean=False):
         render_mode="human",
         max_episode_steps=100,
     )
-    sim = WindowSimulator(
+    data_path = (config.mad_data_path / "Female0"/ "training0").as_posix()
+    sim = SimulatorFactory.create_class(
+        data_path,
         config,
         return_features=True,
-    ) 
-    sim.fit_params_to_mad_sample(
-        str(config.mad_data_path / "Female0/training0/")
     )
     emg_env = EMGEnv(env, teacher, sim)
     
@@ -77,12 +76,11 @@ def visualize_user(config: BaseConfig, encoder_type, sample_mean=False):
         render_mode="human",
         max_episode_steps=100,
     )
-    sim = WindowSimulator(
+    data_path = (config.mad_data_path / "Female0"/ "training0").as_posix()
+    sim = SimulatorFactory.create_class(
+        data_path,
         config,
         return_features=True,
-    ) 
-    sim.fit_params_to_mad_sample(
-        str(config.mad_data_path / "Female0/training0/")
     )
     
     # load encoder
