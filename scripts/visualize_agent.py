@@ -4,6 +4,7 @@ import torch
 from configs import BaseConfig
 from lift.environments.emg_envs import EMGEnv
 from lift.environments.user_envs import UserEnv
+from lift.environments.teacher_envs import TeacherEnv
 from lift.environments.simulator import WindowSimulator
 from lift.environments.gym_envs import NpGymEnv
 from lift.environments.rollout import rollout
@@ -11,8 +12,8 @@ from lift.environments.rollout import rollout
 from lift.controllers import EMGAgent
 from lift.teacher import load_teacher
 
-def visualize_teacher(config: BaseConfig, sample_mean=False):
-    teacher = load_teacher(config)
+def visualize_teacher(config: BaseConfig, meta=False, sample_mean=False):
+    teacher = load_teacher(config, meta=meta)
     
     env = NpGymEnv(
         "FetchReachDense-v2", 
@@ -20,6 +21,9 @@ def visualize_teacher(config: BaseConfig, sample_mean=False):
         cat_keys=config.teacher.env_cat_keys,
         render_mode="human",
     )
+    if meta:
+        env = TeacherEnv(env, config.noise_range, config.alpha_range)
+    
     data = rollout(
         env,
         teacher,
@@ -106,8 +110,9 @@ def main(args):
     print(f"\nvisualizing {args['agent']}")
     config = BaseConfig()
 
-    if args["agent"] == "teacher":
-        visualize_teacher(config, args["sample_mean"])
+    if args["agent"] in ["teacher", "meta_teacher"]:
+        meta = True if args["agent"] == "meta_teacher" else False
+        visualize_teacher(config, meta, args["sample_mean"])
     elif args["agent"] in ["bc", "mi"]:
         visualize_encoder(config, args["agent"], args["sample_mean"])
     elif args["agent"] in ["user"]:
@@ -118,7 +123,7 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     bool_ = lambda x: x.lower() == "true"
-    parser.add_argument("--agent", type=str, choices=["teacher", "bc", "mi", "user"])
+    parser.add_argument("--agent", type=str, choices=["teacher", "meta_teacher", "bc", "mi", "user"])
     parser.add_argument("--sample_mean", type=bool_, default=False)
     args = vars(parser.parse_args())
 
