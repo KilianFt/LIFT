@@ -79,12 +79,12 @@ class OfflineRLConfig(BaseModel):
 
 
 class EncoderConfig(BaseModel):
-    h_dim: int = 128
+    h_dim: int = 128 # mi critic hidden dim
     tau: float = 0.5
     beta_1: float = 1. # mi weight, use 0.5 for mse
     beta_2: float = 1. # kl weight
     kl_approx_method: str = "logp" # choices=[logp, abs, mse]
-    hidden_size: int = 256
+    hidden_size: int = 400
     n_layers: int = 4
     dropout: float = 0.
 
@@ -99,8 +99,9 @@ class SimulatorConfig(BaseModel):
 
 
 class PretrainConfig(BaseModel):
-    epochs: int = 50
-    num_augmentation: int = 10_000
+    epochs: int = 100
+    # num_augmentation: int = 10_000
+    num_augmentation: int = 0
     augmentation_distribution: str = "uniform" # choices=["uniform", "normal"]
     train_ratio: float = 0.8
     batch_size: int = 128
