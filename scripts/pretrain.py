@@ -29,7 +29,7 @@ def validate(env, teacher, sim, encoder, logger):
     data = rollout(
         emg_env, 
         agent, 
-        n_steps=5000,
+        n_steps=1000,
         terminate_on_done=False,
         reset_on_done=True,
     )
@@ -110,7 +110,8 @@ def load_data(config: BaseConfig, load_fake=False):
             window_list, 
             actions_list, 
             config.pretrain.num_augmentation,
-            augmentation_distribution=config.pretrain.augmentation_distribution
+            augmentation_distribution=config.pretrain.augmentation_distribution,
+            reduction=config.simulator.reduction,
         )
         sample_features = compute_features(sample_windows)
 

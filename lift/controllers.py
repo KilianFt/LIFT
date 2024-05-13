@@ -44,7 +44,7 @@ class GaussianEncoder(nn.Module):
             input_dim, 
             output_dim * 2, 
             hidden_dims, 
-            dropout=dropout, 
+            dropout=dropout,
             activation=nn.SiLU, 
             output_activation=None,
         )
@@ -126,8 +126,9 @@ class BCTrainer(L.LightningModule):
         a = batch["act"]
 
         dist = self.encoder.get_dist(x)
-        loss = self.compute_loss(dist, a)
+        # loss = self.compute_loss(dist, a)
         mae = torch.abs(dist.mode - a).mean()
+        loss = mae
         
         self.log("train_loss", loss.data.item())
         self.log("train_mae", mae.data.item())
@@ -142,7 +143,7 @@ class BCTrainer(L.LightningModule):
         mae = torch.abs(dist.mode - a).mean()
 
         self.log("val_loss", loss.data.item())
-        self.log("val_mae", mae.data.item())
+        self.log("val_mae", mae.data.item(), prog_bar=True)
         return loss
 
     def configure_optimizers(self):
@@ -289,7 +290,9 @@ class EMGPolicy(L.LightningModule):
         x, y = val_batch
         predictions = self.model.sample(x)
         val_loss = self.criterion(predictions, y)
-        self.log("val_loss", val_loss, prog_bar=True)
+        mae = torch.abs(predictions - y).mean()
+        self.log("val_loss", val_loss)
+        self.log("val_mae", mae, prog_bar=True)
 
         return val_loss
 
