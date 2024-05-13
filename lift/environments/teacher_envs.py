@@ -9,7 +9,7 @@ import numpy as np
 
 from lift.environments.gym_envs import NpGymEnv, resize_gym_box_space
 
-
+"""NOTE: keep only noise and test how policy changes"""
 class TeacherEnv(gym.Wrapper):
     """Environment used to meta train teacher
 
@@ -26,7 +26,7 @@ class TeacherEnv(gym.Wrapper):
         self.alpha_range = alpha_range
 
         # add meta variables to observation space
-        new_obs_dim = self.observation_space["observation"].shape[-1] + 2
+        new_obs_dim = self.observation_space["observation"].shape[-1] + 1
         self.observation_space["observation"] = resize_gym_box_space(
             self.observation_space["observation"], new_obs_dim
         )
@@ -36,8 +36,9 @@ class TeacherEnv(gym.Wrapper):
 
         # sample meta vars
         noise = np.random.uniform(self.noise_range[0], self.noise_range[1])
-        alpha = np.random.uniform(self.alpha_range[0], self.alpha_range[1])
-        self.meta_vars = np.array([noise, alpha], dtype=self.observation_space["observation"].dtype)
+        # alpha = np.random.uniform(self.alpha_range[0], self.alpha_range[1])
+        # self.meta_vars = np.array([noise, alpha], dtype=self.observation_space["observation"].dtype)
+        self.meta_vars = np.array([noise], dtype=self.observation_space["observation"].dtype)
         
         obs["observation"] = np.concatenate([obs["observation"], self.meta_vars])
         return obs
@@ -70,10 +71,15 @@ class TeacherTransform(Transform):
         super().__init__(in_keys, out_keys, in_keys_inv, out_keys_inv)
         self.noise_range = noise_range
         self.alpha_range = alpha_range
-        
-    def _apply_transform(self, obs: torch.Tensor) -> None:
+
+    def _apply_transform(self, obs: torch.Tensor) -> torch.Tensor:
         new_obs = torch.cat([obs, self.meta_vars], dim=-1)
         return new_obs
+    
+    def _inv_apply_transform(self, action: torch.Tensor) -> torch.Tensor:
+        eps = torch.randn_like(action) * self.meta_vars[0]
+        decoded_action = action + eps
+        return decoded_action
     
     def _step(self, tensordict: TensorDictBase, next_tensordict: TensorDictBase) -> TensorDictBase:
         next_tensordict["observation"] = self._apply_transform(next_tensordict["observation"])
@@ -83,14 +89,15 @@ class TeacherTransform(Transform):
         noise = torch.rand(1).uniform_(self.noise_range[0], self.noise_range[1])
         alpha = torch.rand(1).uniform_(self.alpha_range[0], self.alpha_range[1])
         ones = torch.ones_like(tensordict_reset["observation"][..., :1])
-        self.meta_vars = ones * torch.cat([noise, alpha], dim=-1)
+        # self.meta_vars = ones * torch.cat([noise, alpha], dim=-1)
+        self.meta_vars = ones * noise
         
         tensordict_reset["observation"] = torch.cat([tensordict_reset["observation"], self.meta_vars], dim=-1)
         return tensordict_reset
     
     def transform_observation_spec(self, observation_spec):
         new_obs_dim = list(observation_spec["observation"].shape)
-        new_obs_dim[-1] += 2
+        new_obs_dim[-1] += 1
         observation_spec["observation"].shape = torch.Size(new_obs_dim)
         return observation_spec
 
@@ -110,24 +117,35 @@ if __name__ == "__main__":
     obs = env.reset()
     act = env.action_space.sample()
     next_obs, rwd, done, info = env.step(act)
-    assert env.observation_space["observation"].shape == (18,)
-    assert obs["observation"].shape == (18,)
-    assert next_obs["observation"].shape == (18,)
-    assert np.all(obs["observation"][-2:] == next_obs["observation"][-2:])
+    assert env.observation_space["observation"].shape == (17,)
+    assert obs["observation"].shape == (17,)
+    assert next_obs["observation"].shape == (17,)
+    # assert np.all(obs["observation"][-2:] == next_obs["observation"][-2:])
+    assert np.all(obs["observation"][-1:] == next_obs["observation"][-1:])
 
     # test torchrl transform
     env = gym_env_maker("FetchReachDense-v2")
-    env = TransformedEnv(env, Compose(TeacherTransform(noise_range, alpha_range, in_keys=["observation"], out_keys=["observation"])))
+    env = TransformedEnv(env, Compose(TeacherTransform(
+        noise_range, 
+        alpha_range, 
+        in_keys=["observation"], 
+        out_keys=["observation"], 
+        in_keys_inv=["action"], 
+        out_keys_inv=["action"],
+    )))
     
     action = TensorDict({"action": torch.randn(3)})
     obs1 = env.reset().clone()
     next_obs1 = env.step(action).clone()
     obs2 = env.reset().clone()
     next_obs2 = env.step(action).clone()
-    assert obs1["observation"].shape == (18,)
-    assert next_obs1["next"]["observation"].shape == (18,)
-    assert obs2["observation"].shape == (18,)
-    assert next_obs2["next"]["observation"].shape == (18,)
-    assert torch.all(obs1["observation"][..., -2:] == next_obs1["next"]["observation"][..., -2:]), "meta variables should be the same across steps"
-    assert torch.all(obs2["observation"][..., -2:] == next_obs2["next"]["observation"][..., -2:]), "meta variables should be the same across steps"
-    assert torch.all(obs1["observation"][..., -2:] != obs2["observation"][..., -2:]), "meta variables should be different across episodes"
+    assert obs1["observation"].shape == (17,)
+    assert next_obs1["next"]["observation"].shape == (17,)
+    assert obs2["observation"].shape == (17,)
+    assert next_obs2["next"]["observation"].shape == (17,)
+    # assert torch.all(obs1["observation"][..., -2:] == next_obs1["next"]["observation"][..., -2:]), "meta variables should be the same across steps"
+    # assert torch.all(obs2["observation"][..., -2:] == next_obs2["next"]["observation"][..., -2:]), "meta variables should be the same across steps"
+    # assert torch.all(obs1["observation"][..., -2:] != obs2["observation"][..., -2:]), "meta variables should be different across episodes"
+    assert torch.all(obs1["observation"][..., -1:] == next_obs1["next"]["observation"][..., -1:]), "meta variables should be the same across steps"
+    assert torch.all(obs2["observation"][..., -1:] == next_obs2["next"]["observation"][..., -1:]), "meta variables should be the same across steps"
+    assert torch.all(obs1["observation"][..., -1:] != obs2["observation"][..., -1:]), "meta variables should be different across episodes"

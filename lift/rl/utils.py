@@ -120,6 +120,10 @@ def gym_env_maker(env_name, config: BaseConfig | None = None, meta=False, cat_ob
                 TeacherTransform(
                     noise_range=config.noise_range,
                     alpha_range=config.alpha_range,
+                    in_keys=["observation"], 
+                    out_keys=["observation"], 
+                    in_keys_inv=["action"], 
+                    out_keys_inv=["action"],
                 )
             )
         env = TransformedEnv(raw_env, Compose(*transforms))

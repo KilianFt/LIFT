@@ -57,7 +57,8 @@ class MetaSACLoss(SACLoss):
                 f"Losses shape mismatch: {log_prob.shape} and {min_q_logprob.shape}"
             )
         
-        alpha = tensordict["observation"][:, -1]
+        # alpha = tensordict["observation"][:, -1]
+        alpha = self._alpha
         return alpha * log_prob - min_q_logprob, {"log_prob": log_prob.detach()}
 
     def _compute_target_v2(self, tensordict) -> torch.Tensor:
@@ -97,7 +98,8 @@ class MetaSACLoss(SACLoss):
             ):
                 next_sample_log_prob = next_sample_log_prob.unsqueeze(-1)
             
-            alpha = tensordict["observation"][:, -1:]
+            # alpha = tensordict["observation"][:, -1:]
+            alpha = self._alpha
             next_state_value = state_action_value - alpha * next_sample_log_prob
             next_state_value = next_state_value.min(0)[0]
             tensordict.set(
@@ -106,7 +108,7 @@ class MetaSACLoss(SACLoss):
             target_value = self.value_estimator.value_estimate(tensordict).squeeze(-1)
             return target_value
 
-    def _alpha_loss(self, log_prob: torch.Tensor) -> torch.Tensor:
-        """Dummpy alpha loss multiplied with zero"""
-        alpha_loss = -self.log_alpha * (log_prob + self.target_entropy)
-        return alpha_loss * 0.
+    # def _alpha_loss(self, log_prob: torch.Tensor) -> torch.Tensor:
+    #     """Dummpy alpha loss multiplied with zero"""
+    #     alpha_loss = -self.log_alpha * (log_prob + self.target_entropy)
+    #     return alpha_loss * 0.
