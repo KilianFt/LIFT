@@ -339,7 +339,7 @@ def interpolate_emg(base_emg, base_actions, actions, reduction='abs'):
     if reduction == 'mean':
         sample_emg = sample_emg / act_dim + sample_baseline
     elif reduction == 'abs':
-        sample_emg = sample_emg / actions.abs().mean(dim=-1).clip(min=1.0)[:, None, None] + sample_baseline
+        sample_emg = sample_emg / actions.abs().sum(dim=-1).clip(min=1.0)[:, None, None] + sample_baseline
     else:
         raise ValueError("reduction must be 'mean' or 'abs'")
 
