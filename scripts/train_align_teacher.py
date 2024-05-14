@@ -8,7 +8,7 @@ from configs import BaseConfig
 from lift.environments.gym_envs import NpGymEnv
 from lift.environments.emg_envs import EMGEnv
 from lift.environments.user_envs import UserEnv
-from lift.environments.simulator import SimulatorFactory
+from lift.environments.simulator import SimulatorFactory, Simulator
 from lift.environments.rollout import rollout
 
 from lift.teacher import load_teacher
@@ -55,7 +55,7 @@ def validate(env, teacher, sim, encoder, logger):
         logger.log_metrics({"encoder_reward": mean_rwd})
     return data
 
-def train(data, sim: WindowSimulator, model, logger, config: BaseConfig):
+def train(data, sim: Simulator, model, logger, config: BaseConfig):
     # TODO this should be emg from user env
     emg_features = sim(data["act"])
 
