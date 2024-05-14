@@ -65,9 +65,7 @@ def rollout(
     env.close()
 
     if isinstance(data["obs"][0], dict):
-        print("dict")
         keys = list(data["obs"][0].keys())
-        print(keys)
         data["obs"] = {k: np.stack([o[k] for o in data["obs"]]) for k in keys}
         data["next_obs"] = {k: np.stack([o[k] for o in data["next_obs"]]) for k in keys}
     else:
