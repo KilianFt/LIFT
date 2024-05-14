@@ -24,6 +24,7 @@ class UserEnv(gym.Wrapper):
         emg = self.emg_simulator(action.reshape(1, -1))
         decoded_action = self.emg_policy.sample_action({"emg_observation": emg})[-1]
         obs, rwd, done, info = self.env.step(decoded_action)
+        info["emg"] = emg
         return obs, rwd, done, info
     
 if __name__ == "__main__":

@@ -23,7 +23,6 @@ class EMGEnv(gym.Wrapper):
         self.teacher = teacher
         self.emg_simulator = emg_simulator
 
-        # TODO fix this, values can be > 1 and < -1
         if emg_simulator.return_features:
             self.observation_space["emg_observation"] = gym.spaces.Box(
                 low=-10,

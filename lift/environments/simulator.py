@@ -109,10 +109,10 @@ class NonParametricSimulator(Simulator):
 
         self.return_features = return_features
 
-    def __call__(self, actions):
+    def __call__(self, actions, no_clip=False):
         if not isinstance(actions, torch.Tensor):
             actions = torch.tensor(actions, dtype=torch.float32)
-        emg = interpolate_emg(self.base_emg, self.base_actions, actions, reduction=self.reduction)
+        emg = interpolate_emg(self.base_emg, self.base_actions, actions, reduction=self.reduction, no_clip=no_clip)
         if self.return_features:
             return compute_features(emg)
         

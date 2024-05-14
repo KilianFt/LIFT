@@ -55,13 +55,10 @@ def validate(env, teacher, sim, encoder, logger):
         logger.log_metrics({"encoder_reward": mean_rwd})
     return data
 
-def train(data, sim: Simulator, model, logger, config: BaseConfig):
-    # TODO this should be emg from user env
-    emg_features = sim(data["act"])
-
+def train(data, model, logger, config: BaseConfig):
     sl_data_dict = {
         "obs": data["obs"]["observation"],
-        "emg_obs": emg_features,
+        "emg_obs": data["obs"]["emg"].squeeze(),
         "act": data["act"],
     }
     train_dataloader, val_dataloader = get_dataloaders(
@@ -131,7 +128,7 @@ def main():
     # test once before train
     validate(env, teacher, sim, trainer.encoder, logger)
 
-    train(data, sim, trainer, logger, config)
+    train(data, trainer, logger, config)
     
     # test once after train
     validate(env, teacher, sim, trainer.encoder, logger)

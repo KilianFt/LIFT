@@ -314,7 +314,7 @@ def mad_labels_to_actions(labels: list, recording_strength: float = 1.0):
     return actions
 
 
-def interpolate_emg(base_emg, base_actions, actions, reduction='abs'):
+def interpolate_emg(base_emg, base_actions, actions, reduction='abs', no_clip=False):
     # interpolate emg as: (abs - baseline) * act
     # init emg samples with baseline
     num_augmentation, act_dim = actions.shape
@@ -343,7 +343,8 @@ def interpolate_emg(base_emg, base_actions, actions, reduction='abs'):
     else:
         raise ValueError("reduction must be 'mean' or 'abs'")
 
-    sample_emg = torch.clip(sample_emg, -1, 1)
+    if not no_clip:
+        sample_emg = torch.clip(sample_emg, -1, 1)
     return sample_emg
 
 

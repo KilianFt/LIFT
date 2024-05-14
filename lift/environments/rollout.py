@@ -48,6 +48,9 @@ def rollout(
 
         next_obs, rwd, done, info = env.step(act_env)
 
+        if "emg" in info:
+            obs["emg"] = info["emg"]
+        
         data["rwd"].append(float(rwd))
         data["obs"].append(copy.deepcopy(obs))
         data["act"].append(act)
@@ -67,9 +70,10 @@ def rollout(
     if isinstance(data["obs"][0], dict):
         print("dict")
         keys = list(data["obs"][0].keys())
-        print(keys)
+        next_keys = list(data["next_obs"][0].keys())
+        print(keys, next_keys)
         data["obs"] = {k: np.stack([o[k] for o in data["obs"]]) for k in keys}
-        data["next_obs"] = {k: np.stack([o[k] for o in data["next_obs"]]) for k in keys}
+        data["next_obs"] = {k: np.stack([o[k] for o in data["next_obs"]]) for k in next_keys}
     else:
         data["obs"] = np.stack(data["obs"])
         data["next_obs"] = np.stack(data["next_obs"])
