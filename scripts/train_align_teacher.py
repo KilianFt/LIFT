@@ -8,7 +8,7 @@ from configs import BaseConfig
 from lift.environments.gym_envs import NpGymEnv
 from lift.environments.emg_envs import EMGEnv
 from lift.environments.user_envs import UserEnv
-from lift.environments.simulator import SimulatorFactory, Simulator
+from lift.environments.simulator import SimulatorFactory
 from lift.environments.rollout import rollout
 
 from lift.teacher import load_teacher

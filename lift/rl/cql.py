@@ -15,7 +15,7 @@ from torchrl.data import ReplayBuffer, LazyTensorStorage, SliceSampler
 from lift.rl.algo import AlgoBase
 from lift.rl.sac import SAC
 from lift.rl.utils import gym_env_maker, apply_env_transforms, log_metrics
-from configs import TeacherConfig
+from configs import OfflineRLConfig
 
 
 def record_buffer(env, policy):
@@ -40,7 +40,8 @@ class CQL(AlgoBase):
         super().__init__(config, eval_env, eval_env, in_keys=in_keys)
 
         self.replay_buffer = replay_buffer
-
+        self.bellman_scaling = torch.tensor(config.bellman_scaling).to(self.device)
+        self.bc_regularization = torch.tensor(config.bc_regularization).to(self.device)
         if encoder is not None:
             # replace policy with encoder
             actor_extractor = NormalParamExtractor(
@@ -75,8 +76,9 @@ class CQL(AlgoBase):
             loss = self.loss_module(batch)
             # entropy
 
-            actor_loss = loss["loss_actor"] + loss["loss_actor_bc"]
-            q_loss = loss["loss_qvalue"] + loss["loss_cql"]
+            # choose to add bc reqularization or not
+            actor_loss = loss["loss_actor"]# + loss["loss_actor_bc"]
+            q_loss = loss["loss_cql"] + self.bellman_scaling * loss["loss_qvalue"]
             alpha_loss = loss["loss_alpha"]
 
             # Update actor
@@ -94,17 +96,12 @@ class CQL(AlgoBase):
             alpha_loss.backward()
             self.optimizers["alpha"].step()
 
-            # losses[i] = loss.select(
-            #     "loss_actor", "loss_actor_bc", "loss_qvalue", "loss_cql", "loss_alpha"
-            # ).detach()
-
             self.target_net_updater.step()
 
             metrics_to_log = loss.to_dict()
 
             # Evaluation
             if train_step % self.config.eval_iter == 0:
-                # TODO make param
                 with set_exploration_type(ExplorationType.MODE), torch.no_grad():
                     eval_start = time.time()
                     eval_rollout = self.eval_env.rollout(
@@ -126,8 +123,7 @@ class CQL(AlgoBase):
 
 
 if __name__ == '__main__':
-    # TODO create own config
-    config = TeacherConfig()
+    config = OfflineRLConfig()
 
     train_env = apply_env_transforms(gym_env_maker(config.env_name))
     eval_env = apply_env_transforms(gym_env_maker(config.env_name))
@@ -139,6 +135,5 @@ if __name__ == '__main__':
 
     replay_buffer = record_buffer(train_env, policy)
 
-    # logger = 
     model = CQL(config, replay_buffer, eval_env)
     model.train()

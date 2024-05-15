@@ -151,13 +151,13 @@ class AlgoBase(ABC):
         self.optimizers = {}
         self.optimizers["actor"] = torch.optim.Adam(
             actor_params,
-            lr=self.config.lr,
+            lr=self.config.actor_lr,
             weight_decay=self.config.weight_decay,
             eps=self.config.adam_eps,
         )
         self.optimizers["critic"] = torch.optim.Adam(
             critic_params,
-            lr=self.config.lr,
+            lr=self.config.critic_lr,
             weight_decay=self.config.weight_decay,
             eps=self.config.adam_eps,
         )

@@ -32,8 +32,8 @@ class EMGEnv(gym.Wrapper):
             )
         else:
             self.observation_space["emg_observation"] = gym.spaces.Box(
-                low=-3, 
-                high=3, 
+                low=-1, 
+                high=1, 
                 shape=(emg_simulator.num_channels, emg_simulator.window_size),
                 dtype=np.float64
             )
@@ -86,8 +86,8 @@ class EMGTransform(Transform):
     def _apply_transform(self, obs: torch.Tensor) -> None:
         with torch.no_grad():
             loc, scale, action = self.teacher.model.policy(obs)
-        emg = self.simulator(action.view(1,-1))
-        return emg.squeeze()
+        emg = self.simulator(action)
+        return emg
     
     def _reset(self, tensordict: TensorDictBase, tensordict_reset: TensorDictBase) -> TensorDictBase:
         return self._call(tensordict_reset)
@@ -95,7 +95,7 @@ class EMGTransform(Transform):
     @_apply_to_composite
     def transform_observation_spec(self, observation_spec):
         return UnboundedContinuousTensorSpec(
-            shape=(32,),
+            shape=(1, 32,),
             dtype=torch.float32,
             device=observation_spec.device,
         )

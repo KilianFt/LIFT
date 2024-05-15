@@ -250,10 +250,12 @@ class MITrainer(L.LightningModule):
         a = a[:,:self.a_dim].clone() # remove last element from y
 
         z_dist = self.encoder.get_dist(x)
-        loss, _, _ = self.compute_loss(x, o, z_dist)
+        loss, nce_loss, kl_loss = self.compute_loss(x, o, z_dist)
         mae = torch.abs(z_dist.mode - a).mean()
         
         self.log("train_loss", loss.data.item())
+        self.log("train_nce_loss", nce_loss.data.item())
+        self.log("train_kl_loss", kl_loss.data.item())
         self.log("train_mae", mae.data.item())
         return loss
 

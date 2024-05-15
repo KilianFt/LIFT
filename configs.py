@@ -29,7 +29,8 @@ class TeacherConfig(BaseModel):
     utd_ratio: float = 1.0
     gamma: float = 0.99
     loss_function: str = "l2"
-    lr: float = 3.0e-4
+    actor_lr: float = 3.0e-4
+    critic_lr: float = 3.0e-4
     weight_decay: float = 0.0
     batch_size: int = 256
     target_update_polyak: float = 0.995
@@ -50,28 +51,32 @@ class TeacherConfig(BaseModel):
 class OfflineRLConfig(BaseModel):
     # replay
     replay_buffer_size: int = 1000000
-    batch_size: int = 64
+    batch_size: int = 256
     num_slices: int = 8
 
     # optim 
     utd_ratio: float = 1.0
     gamma: float = 0.99
     loss_function: str = "l2"
-    lr: float = 3.0e-4
+    actor_lr: float = 3.0e-4
+    critic_lr: float = 3.0e-4
     weight_decay: float = 0.0
     target_update_polyak: float = 0.995
-    alpha_init: float = 1.0
+    alpha_init: float = 0.2
     adam_eps: float = 1.0e-8
     
     # nets
-    hidden_sizes: list = [256, 256]
-    activation: str = "relu"
+    hidden_sizes: list = [256, 256, 256]
+    activation: str = "relu" # choices=["relu", "tanh", "leaky_relu"]
     default_policy_scale: float = 1.0
     scale_lb: float = 0.1
     device: str = "cpu"
 
     # train
-    num_updates: int = 10_000
+    num_updates: int = 40_000
+    kl_approx_method: str = "logp" # choices=["logp", "mse"] ("abs" not impletemeted atm)
+    bellman_scaling: float = 0.5 # they use 0.5 in original CQL paper
+    bc_regularization: float = 0.0
 
     # eval
     eval_iter: int = 1000
