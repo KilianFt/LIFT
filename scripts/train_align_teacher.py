@@ -8,7 +8,7 @@ from configs import BaseConfig
 from lift.environments.gym_envs import NpGymEnv
 from lift.environments.emg_envs import EMGEnv
 from lift.environments.user_envs import UserEnv
-from lift.environments.simulator import WindowSimulator
+from lift.environments.simulator import SimulatorFactory, Simulator
 from lift.environments.rollout import rollout
 
 from lift.teacher import load_teacher
@@ -55,13 +55,10 @@ def validate(env, teacher, sim, encoder, logger):
         logger.log_metrics({"encoder_reward": mean_rwd})
     return data
 
-def train(data, sim: WindowSimulator, model, logger, config: BaseConfig):
-    # TODO this should be emg from user env
-    emg_features = sim(data["act"])
-
+def train(data, model, logger, config: BaseConfig):
     sl_data_dict = {
         "obs": data["obs"]["observation"],
-        "emg_obs": emg_features,
+        "emg_obs": data["obs"]["emg"].squeeze(),
         "act": data["act"],
     }
     train_dataloader, val_dataloader = get_dataloaders(
@@ -98,12 +95,11 @@ def main():
         logger = None
     
     teacher = load_teacher(config)
-    sim = WindowSimulator(
+    data_path = (config.mad_data_path / "Female0"/ "training0").as_posix()
+    sim = SimulatorFactory.create_class(
+        data_path,
         config,
         return_features=True,
-    )
-    sim.fit_params_to_mad_sample(
-        (config.mad_data_path / "Female0"/ "training0").as_posix()
     )
 
     env = NpGymEnv(
@@ -132,7 +128,7 @@ def main():
     # test once before train
     validate(env, teacher, sim, trainer.encoder, logger)
 
-    train(data, sim, trainer, logger, config)
+    train(data, trainer, logger, config)
     
     # test once after train
     validate(env, teacher, sim, trainer.encoder, logger)

@@ -79,22 +79,24 @@ class OfflineRLConfig(BaseModel):
 
 
 class EncoderConfig(BaseModel):
-    h_dim: int = 128
+    h_dim: int = 128 # mi critic hidden dim
     tau: float = 0.5
     beta_1: float = 1. # mi weight, use 0.5 for mse
     beta_2: float = 1. # kl weight
     kl_approx_method: str = "logp" # choices=[logp, abs, mse]
-    hidden_size: int = 400
-    n_layers: int = 4
+    hidden_size: int = 512
+    n_layers: int = 6
     dropout: float = 0.
 
 
 class SimulatorConfig(BaseModel):
+    parametric: bool = False
+    reduction: str = "abs" # choices=["mean", "abs"] mean: /act_dict; abs: / actions.abs().sum(dim=-1)
     bias_noise: float = 0.005
     limits_noise: float = 0.01
     base_noise: float = 0.005
     n_bursts: int = 1
-    recording_strength: float = 1.0
+    recording_strength: float = 0.8
 
 
 class PretrainConfig(BaseModel):

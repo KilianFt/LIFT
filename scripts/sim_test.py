@@ -5,7 +5,7 @@ from pytorch_lightning.loggers import WandbLogger
 
 # from lift.datasets import EMGSLDataset
 from lift.controllers import EMGPolicy, TanhGaussianEncoder
-from lift.environments.simulator import WindowSimulator
+from lift.environments.simulator import SimulatorFactory
 from configs import BaseConfig
 
 
@@ -67,10 +67,11 @@ def main():
     config.simulator.base_noise = 0.0
     config.simulator.limits_noise = 0.0
     config.simulator.bias_noise = 0.0
-    sim = WindowSimulator(config,
-                          return_features=True)
-    sim.fit_params_to_mad_sample(
-        str(config.mad_data_path / "Female0/training0/")
+    data_path = (config.mad_data_path / "Female0"/ "training0").as_posix()
+    sim = SimulatorFactory.create_class(
+        data_path,
+        config,
+        return_features=True,
     )
 
     logger = WandbLogger(project='lift', tags='sim_testing')

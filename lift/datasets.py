@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+from tensordict import TensorDict
 from torch.utils.data import Dataset, DataLoader, random_split
 from libemg.utils import get_windows
 from libemg.feature_extractor import FeatureExtractor
@@ -170,92 +171,6 @@ def load_mad_person_trial(
     
     return emg, unique_labels
 
-# """TODO: not sure what this is supposed to do"""
-# def get_mad_windows(data_path, window_size, window_increment, emg_min = -128, emg_max = 127, desired_labels = None, return_lists=False):
-#     emg_list, label_list = load_mad_person_trial(data_path, emg_min, emg_max, desired_labels)
-
-#     sort_id = np.argsort(label_list)
-#     label_list = [label_list[i] for i in sort_id]
-#     emg_list = [emg_list[i] for i in sort_id]
-#     # I used labels 0 - 4 (including 4), where label 0 is rest
-
-#     min_len = min([len(emg) for emg in emg_list])
-#     short_emgs = [emg[:min_len,:] for emg in emg_list]
-#     windows_list = [torch.from_numpy(get_windows(s_emg, window_size, window_increment)) for s_emg in short_emgs]
-#     windows = torch.stack(windows_list, dim=0)
-#     flat_windows = windows.flatten(start_dim=0, end_dim=1)
-
-#     n_repeats = windows_list[0].shape[0]
-#     short_labels = torch.tensor([np.repeat(label, repeats=n_repeats) for label in label_list])
-#     labels = short_labels.flatten(start_dim=0, end_dim=1)
-
-#     # actions = F.one_hot(short_labels, num_classes=5).float()
-#     # flat_actions = actions.flatten(start_dim=0, end_dim=1)
-#     if return_lists:
-#         return flat_windows, labels, windows_list, label_list
-
-#     return flat_windows, labels
-
-# def get_raw_mad_dataset(eval_path, window_size, overlap, skip_person=None):
-#     person_folders = [p for p in os.listdir(eval_path) if p != ".DS_Store"]
-#     first_folder = person_folders[0]
-
-#     keys = next(os.walk((eval_path + first_folder)))[1]
-
-#     number_of_classes = 7
-#     size_non_overlap = window_size - overlap
-
-#     raw_dataset_dict = {}
-#     for key in keys:
-
-#         raw_dataset = {
-#             'examples': [],
-#             'labels': [],
-#         }
-
-#         for person_dir in person_folders:
-#             # skip loading data for a certain person
-#             if skip_person is not None and person_dir == skip_person:
-#                 print(f'skipping {skip_person}')
-#                 continue
-#             examples = []
-#             labels = []
-#             data_path = eval_path + person_dir + '/' + key
-#             for data_file in os.listdir(data_path):
-#                 if data_file.endswith(".dat"):
-#                     data_read_from_file = np.fromfile((data_path + '/' + data_file), dtype=np.int16)
-#                     data_read_from_file = np.array(data_read_from_file, dtype=np.float32)
-
-#                     dataset_example_formatted = []
-#                     example = None
-#                     emg_vector = []
-#                     for value in data_read_from_file:
-#                         emg_vector.append(value)
-#                         if (len(emg_vector) >= 8):
-#                             if example is None:
-#                                 example = emg_vector
-#                             else:
-#                                 example = np.row_stack((example, emg_vector))
-#                             emg_vector = []
-#                             if (len(example) >= window_size):
-#                                 example = example.transpose()
-#                                 dataset_example_formatted.append(example)
-#                                 example = example.transpose()
-#                                 example = example[size_non_overlap:]
-
-#                     dataset_example_formatted = np.array(dataset_example_formatted)
-#                     examples.append(dataset_example_formatted)
-#                     data_file_index = int(data_file.split('classe_')[1][:-4])
-#                     label = data_file_index % number_of_classes + np.zeros(dataset_example_formatted.shape[0])
-#                     labels.append(label)
-            
-#             raw_dataset['examples'].append(np.concatenate(examples))
-#             raw_dataset['labels'].append(np.concatenate(labels))
-
-#         raw_dataset_dict[key] = raw_dataset
-
-#     return raw_dataset_dict
-
 def load_mad_dataset(
     data_path: str, 
     num_channels: int = 8,
@@ -398,11 +313,47 @@ def mad_labels_to_actions(labels: list, recording_strength: float = 1.0):
     actions *= recording_strength
     return actions
 
+
+def interpolate_emg(base_emg, base_actions, actions, reduction='abs', no_clip=False):
+    # interpolate emg as: (abs - baseline) * act
+    # init emg samples with baseline
+    num_augmentation, act_dim = actions.shape
+
+    emg_baseline = base_emg['baseline']
+    idx_sample_baseline = torch.randint(len(emg_baseline), (num_augmentation,))
+    sample_baseline = emg_baseline[idx_sample_baseline]
+    sample_emg = torch.zeros(*[num_augmentation] + list(emg_baseline.shape)[1:])
+    for i in range(act_dim):
+        idx_sample_pos = torch.randint(len(emg_baseline), (num_augmentation,))
+        idx_sample_neg = torch.randint(len(emg_baseline), (num_augmentation,))
+        pos_component = base_emg['pos'][i][idx_sample_pos] / base_actions['pos'][i][i].abs()
+        neg_component = base_emg['neg'][i][idx_sample_neg] / base_actions['neg'][i][i].abs()
+        
+        abs_action = actions[:, i].abs().view(-1, 1, 1)
+        is_pos = 1 * (actions[:, i] > 0).view(-1, 1, 1)
+        sample_emg += (
+            is_pos * abs_action * pos_component + \
+            (1 - is_pos) * abs_action * neg_component
+        )
+
+    if reduction == 'mean':
+        sample_emg = sample_emg / act_dim + sample_baseline
+    elif reduction == 'abs':
+        sample_emg = sample_emg / actions.abs().sum(dim=-1).clip(min=1.0)[:, None, None] + sample_baseline
+    else:
+        raise ValueError("reduction must be 'mean' or 'abs'")
+
+    if not no_clip:
+        sample_emg = torch.clip(sample_emg, -1, 1)
+    return sample_emg
+
+
 def mad_augmentation(
     emg: list[torch.Tensor], 
     actions: list[torch.Tensor], 
     num_augmentation: int, 
     augmentation_distribution: str = 'uniform',
+    reduction: str = 'act_dim',
 ):
     """Discrete emg data augmentation using random interpolation
 
@@ -426,14 +377,19 @@ def mad_augmentation(
     emg = [el[:min_samples] for el in emg]
 
     emg_baseline = emg[idx_baseline]
-    emg_pos = torch.stack([emg[i] - emg_baseline for i in idx_pos])
-    emg_neg = torch.stack([emg[i] - emg_baseline for i in idx_neg])
+    base_emg = TensorDict({
+        'baseline': emg_baseline,
+        'pos': torch.stack([emg[i] - emg_baseline for i in idx_pos]),
+        'neg': torch.stack([emg[i] - emg_baseline for i in idx_neg]),
+    })
 
-    action_baseline = actions[idx_baseline]
-    action_pos = torch.stack([actions[i] for i in idx_pos])
-    action_neg = torch.stack([actions[i] for i in idx_neg])
-    
-    act_dim = action_baseline.shape[-1]
+    base_actions = TensorDict({
+        'baseline': actions[idx_baseline],
+        'pos': torch.stack([actions[i] for i in idx_pos]),
+        'neg': torch.stack([actions[i] for i in idx_neg]),
+    })
+
+    act_dim = actions.shape[-1]
 
     if augmentation_distribution == 'uniform':
         sample_actions = torch.rand(num_augmentation, act_dim) * 2 - 1
@@ -442,28 +398,7 @@ def mad_augmentation(
     else:
         raise ValueError("augmentation_distribution must be 'uniform' or 'normal'")
     
-    # init emg samples with baseline
-    idx_sample_baseline = torch.randint(len(emg_baseline), (num_augmentation,))
-    sample_baseline = emg_baseline[idx_sample_baseline]
-    
-    # interpolate emg as: (abs - baseline) * act
-    sample_emg = torch.zeros(*[num_augmentation] + list(emg_baseline.shape)[1:])
-    for i in range(act_dim):
-        idx_sample_pos = torch.randint(len(emg_baseline), (num_augmentation,))
-        idx_sample_neg = torch.randint(len(emg_baseline), (num_augmentation,))
-        pos_component = emg_pos[i][idx_sample_pos] / action_pos[i][i].abs()
-        neg_component = emg_neg[i][idx_sample_neg] / action_neg[i][i].abs()
-        
-        abs_action = sample_actions[:, i].abs().view(-1, 1, 1)
-        is_pos = 1 * (sample_actions[:, i] > 0).view(-1, 1, 1)
-        sample_emg += (
-            is_pos * abs_action * pos_component + \
-            (1 - is_pos) * abs_action * neg_component
-        )
-
-    sample_emg = sample_emg / act_dim + sample_baseline
-    # sample_emg = sample_emg / sample_actions.abs().mean(dim=-1).clip(min=1.0)[:, None, None] + sample_baseline
-    sample_emg = torch.clip(sample_emg, -1, 1)
+    sample_emg = interpolate_emg(base_emg, base_actions, sample_actions, reduction)
     
     return sample_emg, sample_actions
 

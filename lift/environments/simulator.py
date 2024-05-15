@@ -1,14 +1,20 @@
+import abc
 import logging
 
 import numpy as np
-from libemg.utils import get_windows
 
 import torch
 import torch.distributions as torch_dist
 
 from tensordict import TensorDict
 
-from lift.datasets import load_mad_person_trial, compute_features
+from lift.datasets import (
+    load_mad_person_trial,
+    compute_features,
+    interpolate_emg,
+    mad_labels_to_actions,
+    make_overlap_windows
+    )
 from lift.datasets import MAD_LABELS_TO_DOF
 
 
@@ -36,21 +42,92 @@ class FakeSimulator:
         return features
 
 
-class WindowSimulator:
+class Simulator(abc.ABC):
+    def __init__(self, data_path, config, return_features=False) -> None:
+            self.num_features = 4
+            self.reduction = config.simulator.reduction
+            self.return_features = return_features
+            self.action_size = config.action_size
+            self.num_bursts = config.simulator.n_bursts
+            self.num_channels = config.n_channels
+            self.window_size = config.window_size
+            self.burst_durations = [self.window_size // self.num_bursts] * (self.num_bursts - 1)
+            self.burst_durations = self.burst_durations + [self.window_size - int(np.sum(self.burst_durations))]
+
+    @abc.abstractmethod
+    def __call__(self, actions):
+        pass
+
+
+class SimulatorFactory:
+    @staticmethod
+    def create_class(data_path, config, return_features=False):
+        if config.simulator.parametric == False:
+            return NonParametricSimulator(data_path, config, return_features)
+        else:
+            return ParametricSimulator(data_path, config, return_features)
+
+
+class NonParametricSimulator(Simulator):
+    def __init__(self, data_path, config, return_features=False) -> None:
+        super().__init__(data_path, config, return_features)
+        # load emg data of one person
+        raw_emg, labels = load_mad_person_trial(
+            data_path, 
+            num_channels=config.n_channels,
+        )
+        windows = [
+            make_overlap_windows(
+                e, 
+                window_size=config.window_size,
+                window_overlap=150,
+            ) for e in raw_emg
+        ]
+        windows = [torch.tensor(w, dtype=torch.float32) for w in windows]
+        mad_actions =  mad_labels_to_actions(labels, recording_strength=config.simulator.recording_strength)
+        assert torch.all(mad_actions == 0, dim=1).any(), "Baseline action (0, 0, 0) required for augmentation"
+        idx_baseline = [i for i in range(len(mad_actions)) if torch.all(mad_actions[i] == 0)][0]
+        idx_pos = [i for i in range(len(mad_actions)) if torch.any(mad_actions[i] > 0)]
+        idx_neg = [i for i in range(len(mad_actions)) if torch.any(mad_actions[i] < 0)]
+        
+        # truncate to the smallest sample size
+        min_samples = min([w.shape[0] for w in windows])
+        emg = [w[:min_samples] for w in windows]
+
+        emg_baseline = emg[idx_baseline]
+        self.base_emg = TensorDict({
+            'baseline': emg_baseline,
+            'pos': torch.stack([emg[i] - emg_baseline for i in idx_pos]),
+            'neg': torch.stack([emg[i] - emg_baseline for i in idx_neg]),
+        })
+
+        self.base_actions = TensorDict({
+            'baseline': mad_actions[idx_baseline],
+            'pos': torch.stack([mad_actions[i] for i in idx_pos]),
+            'neg': torch.stack([mad_actions[i] for i in idx_neg]),
+        })
+
+        self.return_features = return_features
+
+    def __call__(self, actions, no_clip=False):
+        if not isinstance(actions, torch.Tensor):
+            actions = torch.tensor(actions, dtype=torch.float32)
+        emg = interpolate_emg(self.base_emg, self.base_actions, actions, reduction=self.reduction, no_clip=no_clip)
+        if self.return_features:
+            return compute_features(emg)
+        
+        return emg
+
+
+class ParametricSimulator(Simulator):
     """Assume equal burst durations, only tune ranges and biases"""
     def __init__(
-            self, 
+            self,
+            data_path,
             config,
             return_features=False,
         ):
-        self.num_features = 4
-        self.return_features = return_features
-        self.action_size = config.action_size
-        self.num_bursts = config.simulator.n_bursts
-        self.num_channels = config.n_channels
-        self.window_size = config.window_size
-        self.burst_durations = [self.window_size // self.num_bursts] * (self.num_bursts - 1)
-        self.burst_durations = self.burst_durations + [self.window_size - int(np.sum(self.burst_durations))]
+        super().__init__(data_path, config, return_features)
         
         # init params
         self.biases = TensorDict({
@@ -74,6 +151,10 @@ class WindowSimulator:
         self.feature_means = torch.zeros(feature_size)
         self.feature_stds = torch.ones(feature_size)
 
+        if data_path is not None:
+            self.fit_params_to_mad_sample(
+                data_path,
+            )
 
     def fit_normalization_params(self):
         actions = torch.rand(10000, 3) * 2 - 1
@@ -142,10 +223,13 @@ class WindowSimulator:
         sample_emg += sample_biases[:, None, :]
 
         # combine baseline and actions
-        # magnitude = actions.abs().sum(dim=-1).clip(min=1.0)
-        # sample_emg = sample_emg / magnitude[:, None, None] + sample_baseline
-        sample_emg = sample_emg / act_dim  + sample_baseline
-        # sample_emg = sample_emg + sample_baseline
+        if self.reduction == 'mean':
+            sample_emg = sample_emg / act_dim  + sample_baseline
+        elif self.reduction == 'abs':
+            magnitude = actions.abs().sum(dim=-1).clip(min=1.0)
+            sample_emg = sample_emg / magnitude[:, None, None] + sample_baseline
+        else:
+            raise ValueError(f"Invalid reduction: {self.reduction}")
 
         # shape [n_actions, num_channels, window_size]
         sample_emg = sample_emg.permute(0, 2, 1)
@@ -214,13 +298,13 @@ if __name__ == "__main__":
 
     config = BaseConfig()
     config.simulator.noise = 0.0
-    sim = WindowSimulator(
+    data_path = (config.mad_data_path / "Female0"/ "training0").as_posix()
+    sim = SimulatorFactory.create_class(
+        data_path,
         config,
-        return_features=False,
+        return_features=True,
     )
-    sim.fit_params_to_mad_sample(
-        config.mad_data_path / "Female0" / "training0"
-    )
+
     single_actions = torch.from_numpy(MAD_LABELS_TO_DOF).to(torch.float32) * config.simulator.recording_strength
     out = sim(single_actions, no_clip=True)
 
