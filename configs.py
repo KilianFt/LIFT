@@ -84,7 +84,7 @@ class EncoderConfig(BaseModel):
     beta_1: float = 1. # mi weight, use 0.5 for mse
     beta_2: float = 1. # kl weight
     kl_approx_method: str = "logp" # choices=[logp, abs, mse]
-    hidden_size: int = 256
+    hidden_size: int = 400
     n_layers: int = 4
     dropout: float = 0.
 
@@ -138,8 +138,8 @@ class BaseConfig(BaseModel):
     desired_mad_labels: list = [0, 1, 2, 3, 4, 5, 6]
 
     # user model
-    noise_range: list = [0.001, 1]
-    alpha_range: list = [0.01, 1]
+    noise_range: list | None = [0.001, 1]
+    alpha_range: list | None = None
 
     seed: int = 100
     num_workers: int = 7
