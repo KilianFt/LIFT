@@ -42,7 +42,7 @@ class EMGEnv(gym.Wrapper):
     def _obs_to_emg(self, obs):
         teacher_action = self.teacher.sample_action(obs).reshape(1, -1)
         emg = self.emg_simulator(teacher_action)[0].numpy() # last action entry not used in fetch env
-        return emg
+        return emg, teacher_action
     
     """TODO: unify teacher reset"""
     def reset(self):
@@ -50,17 +50,16 @@ class EMGEnv(gym.Wrapper):
             self.teacher.reset()
         
         obs = self.env.reset()
-        obs["emg_observation"] = self._obs_to_emg(obs)
+        obs["emg_observation"], self.teacher_action = self._obs_to_emg(obs)
         return obs
 
     def step(self, action):
         obs, rwd, done, info = self.env.step(action)
-        obs["emg_observation"] = self._obs_to_emg(obs)
+        obs["emg_observation"], next_teacher_action = self._obs_to_emg(obs)
+
+        info["teacher_action"] = self.teacher_action.flatten().copy()
+        self.teacher_action = next_teacher_action
         return obs, rwd, done, info
-    
-    # def get_ideal_action(self, state):
-    #     short_state = {key: value for key, value in state.items() if key != "emg_observation"}
-    #     return self.teacher.predict(short_state)
     
 
 class EMGTransform(Transform):
@@ -117,7 +116,7 @@ if __name__ == '__main__':
     teacher = SAC(teach_config, torchrl_env, torchrl_env)
     
     data_path = (config.mad_data_path / "Female0"/ "training0").as_posix()
-    sim = SimualtorFactory(
+    sim = SimulatorFactory.create_class(
         data_path,
         config,
         return_features=True,
