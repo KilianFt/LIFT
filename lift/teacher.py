@@ -6,22 +6,34 @@ from lift.rl.utils import parallel_env_maker
 
 class ConditionedTeacher:
     """Wrapper to reset teacher with random meta variables for simulated trajectories"""
-    def __init__(self, teacher, noise_range=0., alpha_range=0.):
+    def __init__(
+        self, 
+        teacher: SAC | MetaSAC, 
+        noise_range: list[float] | None = [0.001, 1.], 
+        alpha_range: list[float] | None = [0.001, 1.], 
+    ):
         self.noise_range = noise_range
         self.alpha_range = alpha_range
         self.teacher = teacher
 
     def reset(self):
-        noise = np.random.uniform(self.noise_range[0], self.noise_range[1])
-        # alpha = np.random.uniform(self.alpha_range[0], self.alpha_range[1])
-        # self.meta_vars = np.array([noise, alpha], dtype=self.observation_space["observation"].dtype)
-        self.meta_vars = np.array([noise])
+        self.meta_vars = None
+        meta_vars = []
+        if self.noise_range is not None:
+            noise = np.random.uniform(self.noise_range[0], self.noise_range[1])
+            meta_vars.append(noise)
+        if self.alpha_range is not None:
+            alpha = np.random.uniform(self.alpha_range[0], self.alpha_range[1])
+            meta_vars.append(alpha)
+        
+        if meta_vars != []:
+            self.meta_vars = np.hstack(meta_vars)
     
     def sample_action(self, obs, sample_mean=False):
         obs_ = copy.deepcopy(obs)
-        # obs_["observation"][..., -2] = self.noise
-        # obs_["observation"][..., -1] = self.alpha
-        obs_["observation"][..., -1] = self.meta_vars
+
+        if self.meta_vars is not None:
+            obs_["observation"] = np.concatenate([obs_["observation"], self.meta_vars], axis=-1)
         return self.teacher.sample_action(obs_, sample_mean)
 
 
