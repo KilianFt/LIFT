@@ -8,6 +8,7 @@ import numpy as np
 import torch
 from tensordict import TensorDict
 from torch.utils.data import Dataset, DataLoader, random_split
+from torch.nn.utils.rnn import pad_sequence
 from libemg.utils import get_windows
 from libemg.feature_extractor import FeatureExtractor
 
@@ -30,8 +31,64 @@ class EMGSLDataset(Dataset):
         return out
 
 
-def get_dataloaders(data_dict, train_ratio=0.8, batch_size=32, num_workers=4):
-    dataset = EMGSLDataset(data_dict)
+class EMGSeqDataset(Dataset):
+    """Sequence learning dataset"""
+    def __init__(self, data: list[dict]):
+        assert isinstance(data[0], dict), "data elements must be dictionaries"
+        self.data = data
+
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        # concat obs, emg_ob, emg_act
+        data = self.data[idx]
+        obs = np.concatenate(list(data["obs"].values()), axis=-1)
+        act = data["act"]
+        out = np.concatenate([obs, act], axis=-1)
+        out = torch.from_numpy(out).to(torch.float32)
+        return out
+
+
+def format_seq_data(data: dict) -> list[dict]:
+    """Format rollout data into sequences"""
+    obs_keys = data["obs"].keys()
+    eps_ids = data["done"].cumsum()
+    eps_ids = np.insert(eps_ids, 0, 0)[:-1]
+    unique_eps_ids = np.unique(eps_ids)
+    
+    seq_data = []
+    for eps_id in unique_eps_ids:
+        idx = eps_ids == eps_id
+        obs = {k: data["obs"][k][idx] for k in obs_keys}
+        act = data["act"][idx]
+        rwd = data["rwd"][idx]
+        next_obs = {k: data["next_obs"][k][idx] for k in obs_keys}
+        done = data["done"][idx]
+        seq_data.append({
+            "obs": obs,
+            "act": act,
+            "rwd": rwd,
+            "next_obs": next_obs,
+            "done": done
+        })
+    return seq_data
+
+def seq_collate_fn(batch):
+    """Pad sequence return mask"""
+    pad_batch = pad_sequence(batch)
+    mask = pad_sequence([torch.ones(len(b)) for b in batch])
+    return pad_batch, mask
+
+"""TODO: figure out better way to handle bc and sequence data"""
+def get_dataloaders(data_dict, is_seq=False, train_ratio=0.8, batch_size=32, num_workers=4):
+    if not is_seq:
+        dataset = EMGSLDataset(data_dict)
+        collate_fn = None
+    else:
+        seq_data = format_seq_data(data_dict)
+        dataset = EMGSeqDataset(seq_data)
+        collate_fn = seq_collate_fn
 
     train_size = int(train_ratio * len(dataset))
     val_size = len(dataset) - train_size
@@ -40,6 +97,7 @@ def get_dataloaders(data_dict, train_ratio=0.8, batch_size=32, num_workers=4):
     train_dataloader = DataLoader(
         train_dataset, 
         batch_size=batch_size, 
+        collate_fn=collate_fn,
         num_workers=num_workers, 
         persistent_workers=True, 
         shuffle=True,
@@ -47,6 +105,7 @@ def get_dataloaders(data_dict, train_ratio=0.8, batch_size=32, num_workers=4):
     val_dataloader = DataLoader(
         val_dataset, 
         batch_size=batch_size, 
+        collate_fn=collate_fn,
         num_workers=num_workers, 
         persistent_workers=True,
     )

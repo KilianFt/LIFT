@@ -4,14 +4,12 @@ import torch
 import numpy as np
 import lightning as L
 from pytorch_lightning.loggers import WandbLogger
-from torch.utils.data import Dataset, DataLoader
-from torch.nn.utils.rnn import pad_sequence
 
 from configs import BaseConfig
 from lift.environments.gym_envs import NpGymEnv
 from lift.environments.emg_envs import EMGEnv
 from lift.environments.user_envs import UserEnv
-from lift.environments.simulator import WindowSimulator
+from lift.environments.simulator import SimulatorFactory, Simulator
 from lift.environments.rollout import rollout
 
 from lift.teacher import load_teacher, ConditionedTeacher
@@ -59,62 +57,10 @@ def validate(env, teacher, sim, encoder, logger):
         logger.log_metrics({"encoder_reward": mean_rwd})
     return data
 
-def format_data(data: dict) -> list[dict]:
-    """Format rollout data into sequences"""
-    obs_keys = data["obs"].keys()
-    eps_ids = data["done"].cumsum()
-    eps_ids = np.insert(eps_ids, 0, 0)[:-1]
-    unique_eps_ids = np.unique(eps_ids)
-    
-    seq_data = []
-    for eps_id in unique_eps_ids:
-        idx = eps_ids == eps_id
-        obs = {k: data["obs"][k][idx] for k in obs_keys}
-        act = data["act"][idx]
-        rwd = data["rwd"][idx]
-        next_obs = {k: data["next_obs"][k][idx] for k in obs_keys}
-        done = data["done"][idx]
-        seq_data.append({
-            "obs": obs,
-            "act": act,
-            "rwd": rwd,
-            "next_obs": next_obs,
-            "done": done
-        })
-    return seq_data
-
-
-class EMGSeqDataset(Dataset):
-    """Sequence learning dataset"""
-    def __init__(self, data: list[dict]):
-        assert isinstance(data[0], dict), "data elements must be dictionaries"
-        self.data = data
-
-    def __len__(self):
-        return len(self.data)
-    
-    def __getitem__(self, idx):
-        # concat obs, emg_ob, emg_act
-        data = self.data[idx]
-        obs = np.concatenate(list(data["obs"].values()), axis=-1)
-        act = data["act"]
-        out = np.concatenate([obs, act], axis=-1)
-        out = torch.from_numpy(out).to(torch.float32)
-        return out
-
-
-def collate_fn(batch):
-    pad_batch = pad_sequence(batch)
-    mask = pad_sequence([torch.ones(len(b)) for b in batch])
-    return pad_batch, mask
-
-def train(data, sim: WindowSimulator, model, logger, config: BaseConfig):
-    # TODO this should be emg from user env
-    emg_features = sim(data["act"])
-
+def train(data, model, logger, config: BaseConfig):
     sl_data_dict = {
         "obs": data["obs"]["observation"],
-        "emg_obs": emg_features,
+        "emg_obs": data["obs"]["emg"].squeeze(),
         "act": data["act"],
     }
     train_dataloader, val_dataloader = get_dataloaders(
@@ -150,18 +96,17 @@ def main():
     else:
         logger = None
     
-    teacher = load_teacher(config, meta=False)
+    teacher = load_teacher(config, meta=True)
     conditioned_teacher = ConditionedTeacher(
         teacher,
         config.noise_range,
         config.alpha_range,
     )
-    sim = WindowSimulator(
+    data_path = (config.mad_data_path / "Female0"/ "training0").as_posix()
+    sim = SimulatorFactory.create_class(
+        data_path,
         config,
         return_features=True,
-    )
-    sim.fit_params_to_mad_sample(
-        (config.mad_data_path / "Female0"/ "training0").as_posix()
     )
 
     env = NpGymEnv(
@@ -184,18 +129,14 @@ def main():
     data = maybe_rollout(emg_env, emg_policy, config, use_saved=False)
     mean_rwd = data["rwd"].mean()
     print("encoder_reward", mean_rwd)
-    seq_data = format_data(data)
-    dataset = EMGSeqDataset(seq_data)
     
-    dataloader = DataLoader(
-        dataset, 
-        batch_size=config.mi.batch_size, 
-        collate_fn=collate_fn,
-        # num_workers=num_workers, 
-        # persistent_workers=True, 
-        # shuffle=True,
+    train_loader, val_loader = get_dataloaders(
+        data, 
+        is_seq=True, 
+        train_ratio=config.mi.train_ratio,
+        batch_size=config.mi.batch_size,
+        num_workers=1,
     )
-    batch, mask = next(iter(dataloader))
 
     # if logger is not None:
     #     logger.log_metrics({"encoder_reward": mean_rwd})
