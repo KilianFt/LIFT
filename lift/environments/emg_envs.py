@@ -58,6 +58,8 @@ class EMGEnv(gym.Wrapper):
         obs["emg_observation"], next_teacher_action = self._obs_to_emg(obs)
 
         info["teacher_action"] = self.teacher_action.flatten().copy()
+        if isinstance(self.teacher, ConditionedTeacher):
+            info["teacher_meta_vars"] = self.teacher.meta_vars.copy()
         self.teacher_action = next_teacher_action
         return obs, rwd, done, info
     
