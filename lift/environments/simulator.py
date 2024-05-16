@@ -69,6 +69,7 @@ class SimulatorFactory:
 
 
 class NonParametricSimulator(Simulator):
+    """Non-parametric simulator that interpolates EMG samples from the MAD dataset"""
     def __init__(self, data_path, config, return_features=False) -> None:
         super().__init__(data_path, config, return_features)
         # load emg data of one person
@@ -276,8 +277,8 @@ class ParametricSimulator(Simulator):
 
         return biases, limits
 
-    """TODO: 
-    make simulator fitting and sampling consistent with mad augmentation
+    """
+    Fit simulator to a single MAD sample
     maybe aggregate all mad samples and feed as input to this function in case we want to fit to multiple participants
     """
     def fit_params_to_mad_sample(self, data_path, emg_range: list = [-128, 127], desired_labels: list = [0, 1, 2, 3, 4, 5, 6]):
