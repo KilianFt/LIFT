@@ -46,8 +46,8 @@ class EMGEnv(gym.Wrapper):
     
     """TODO: unify teacher reset"""
     def reset(self):
-        if isinstance(self.teacher, ConditionedTeacher):
-            self.teacher.reset()
+        # if isinstance(self.teacher, ConditionedTeacher):
+        #     self.teacher.reset()
         
         obs = self.env.reset()
         obs["emg_observation"], self.teacher_action = self._obs_to_emg(obs)

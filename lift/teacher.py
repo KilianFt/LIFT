@@ -37,6 +37,12 @@ class ConditionedTeacher:
         return self.teacher.sample_action(obs_, sample_mean)
 
 
+def apply_gaussian_drift(z, offset, std, range=[-np.inf, np.inf]):
+    """Apply gaussian drift to variable z and clip to bound"""
+    drift = np.random.normal(offset, std)
+    z_new = np.clip(z + drift, range[0], range[1])
+    return z_new
+
 def load_teacher(config, load_frozen=True, meta=False):
     train_env = parallel_env_maker(
         config.teacher.env_name,
