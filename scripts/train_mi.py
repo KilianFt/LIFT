@@ -7,7 +7,6 @@ from pytorch_lightning.loggers import WandbLogger
 from configs import BaseConfig
 from lift.environments.gym_envs import NpGymEnv
 from lift.environments.emg_envs import EMGEnv
-from lift.environments.user_envs import UserEnv
 from lift.environments.simulator import SimulatorFactory
 from lift.environments.rollout import rollout
 
@@ -16,8 +15,8 @@ from lift.datasets import get_dataloaders
 from lift.controllers import MITrainer, EMGAgent
 
 
-def maybe_rollout(env: UserEnv, teacher, config: BaseConfig, use_saved=True):
-    rollout_file = config.rollout_data_path / f"data.pkl"
+def maybe_rollout(env: EMGEnv, policy: EMGAgent, config: BaseConfig, use_saved=True):
+    rollout_file = config.rollout_data_path / f"mi_rollout_data.pkl"
     if use_saved and rollout_file.exists():
         print(f"\nload rollout data from file: {rollout_file}")
         with open(rollout_file, "rb") as f:
@@ -26,7 +25,7 @@ def maybe_rollout(env: UserEnv, teacher, config: BaseConfig, use_saved=True):
         print("collecting training data from teacher")
         data = rollout(
             env,
-            teacher,
+            policy,
             n_steps=config.mi.n_steps_rollout,
             terminate_on_done=False,
             reset_on_done=True,
@@ -58,8 +57,8 @@ def validate(env, teacher, sim, encoder, logger):
 def train(data, model, logger, config: BaseConfig):
     sl_data_dict = {
         "obs": data["obs"]["observation"],
-        "emg_obs": data["obs"]["emg"].squeeze(),
-        "act": data["act"],
+        "emg_obs": data["obs"]["emg_observation"],
+        "act": data["info"]["teacher_action"], # privileged information for validation
     }
     train_dataloader, val_dataloader = get_dataloaders(
         data_dict=sl_data_dict,
@@ -115,11 +114,10 @@ def main():
     trainer = MITrainer(config, env, teacher)
     trainer.encoder.load_state_dict(bc_trainer.encoder.state_dict())
 
-    emg_policy = EMGAgent(trainer.encoder)
-    user_env = UserEnv(env, emg_policy, sim)
-
     # collect user data
-    data = maybe_rollout(user_env, teacher, config, use_saved=False)
+    emg_env = EMGEnv(env, teacher, sim)
+    emg_policy = EMGAgent(trainer.encoder)
+    data = maybe_rollout(emg_env, emg_policy, config, use_saved=False)
     mean_rwd = data["rwd"].mean()
     print("encoder_reward", mean_rwd)
     if logger is not None:
