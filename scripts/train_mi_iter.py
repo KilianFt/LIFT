@@ -1,9 +1,12 @@
 """
 Iterative MI training
 """
+import argparse
+import copy
 import pickle
 import wandb
 import torch
+import numpy as np
 import lightning as L
 from pytorch_lightning.loggers import WandbLogger
 
@@ -40,6 +43,17 @@ def maybe_rollout(env: EMGEnv, policy: EMGAgent, config: BaseConfig, use_saved=T
             pickle.dump(data, f)
     return data
 
+def validate_data(data, logger):
+    assert data["info"]["teacher_action"].shape == data["act"].shape
+    mae = np.abs(data["info"]["teacher_action"] - data["act"]).mean()
+    mean_rwd = data["rwd"].mean()
+    std_rwd = data["rwd"].std()
+    print(f"encoder reward mean: {mean_rwd:.4f}, std: {std_rwd:.4f}, mae: {mae:.4f}")
+    if logger is not None:
+        logger.log_metrics({"encoder_reward": mean_rwd, "encoder_mae": mae})
+
+    return mean_rwd, std_rwd, mae
+
 def validate(env, teacher, sim, encoder, logger):
     emg_env = EMGEnv(env, teacher, sim)
     agent = EMGAgent(encoder)
@@ -50,12 +64,9 @@ def validate(env, teacher, sim, encoder, logger):
         terminate_on_done=False,
         reset_on_done=True,
     )
-    mean_rwd = data["rwd"].mean()
-    std_rwd = data["rwd"].std()
-    print(f"encoder reward mean: {mean_rwd:.4f}, std: {std_rwd:.4f}")
-    if logger is not None:
-        logger.log_metrics({"encoder_reward": mean_rwd})
-    return data
+    mean_rwd, std_rwd, mae = validate_data(data, logger)
+    return mean_rwd, std_rwd, mae
+
 
 def train(data, model, logger, config: BaseConfig):
     sl_data_dict = {
@@ -84,18 +95,35 @@ def train(data, model, logger, config: BaseConfig):
         val_dataloaders=val_dataloader,
     )
 
+def append_dataset(dataset, data):
+    for k, v in copy.deepcopy(data).items():
+        if k not in dataset:
+            dataset[k] = v
+        else:
+            if isinstance(v, torch.Tensor):
+                dataset[k] = torch.cat([dataset[k], v], dim=0)
+            elif isinstance(v, dict):
+                for kk, vv in v.items():
+                    dataset[k][kk] = np.concatenate([dataset[k][kk], vv], axis=0)
+            else:
+                dataset[k] = np.concatenate([dataset[k], v], axis=0)
 
-def main():
+def main(exp_name, constant_noise, constant_alpha):
     config = BaseConfig()
     L.seed_everything(config.seed)
+
+    config.noise_range = [constant_noise, constant_noise]
+    if constant_alpha is not None:
+        config.alpha_range = [constant_alpha, constant_alpha]
+
     if config.use_wandb:
         _ = wandb.init(project='lift', tags='align_teacher')
-        config = BaseConfig(**wandb.config)
+        # config = BaseConfig(**wandb.config) this will overwrite the noise_range
         logger = WandbLogger()
         wandb.config.update(config.model_dump())
     else:
         logger = None
-    
+
     env = NpGymEnv(
         "FetchReachDense-v2", 
         cat_obs=True, 
@@ -107,12 +135,11 @@ def main():
         return_features=True,
     )
     
-    # init user 
+    # init user with known noise and alpha for controlled experiment
     user = load_teacher(config, meta=True)
-    """TODO: init user with known noise and alpha for controlled experiment"""
     user = ConditionedTeacher(
         user, 
-        noise_range=config.noise_range, 
+        noise_range=config.noise_range,
         alpha_range=config.alpha_range,
     )
     user.reset()
@@ -124,9 +151,21 @@ def main():
     trainer = MITrainer(config, env, teacher)
     trainer.encoder.load_state_dict(bc_trainer.encoder.state_dict())
     
-    """TODO: record mae and reward stats in between sessions"""
     # interactive training loop
     num_sessions = 10
+
+    dataset = {}
+    results = {
+        'noise': config.noise_range,
+        'noise_drift': config.noise_drift,
+        'alpha': config.alpha_range,
+        'alpha_drift': config.alpha_drift,
+        'wandb_id': wandb.run.id if config.use_wandb else 'local',
+        'rwd': [],
+        'rwd_std': [],
+        'mae': [],
+    }
+
     for i in range(num_sessions):
         # collect user data
         emg_env = EMGEnv(env, user, sim)
@@ -134,25 +173,46 @@ def main():
 
         """TODO: reduce rollout steps here"""
         data = maybe_rollout(emg_env, emg_policy, config, use_saved=False)
-        mean_rwd = data["rwd"].mean()
-        print("encoder_reward", mean_rwd)
-        if logger is not None:
-            logger.log_metrics({"encoder_reward": mean_rwd})
+        rwd, std_rwd, mae = validate_data(data, logger)
+        results['rwd'].append(rwd)
+        results['rwd_std'].append(std_rwd)
+        results['mae'].append(mae)
 
-        train(data, trainer, logger, config)
+        append_dataset(dataset, data)
+
+        # we might want to aggregate data from multiple sessions
+        dataset = dataset if config.mi.aggregate_data else data
+        train(dataset, trainer, logger, config)
 
         # update user meta vars
-        user.meta_vars[0] = apply_gaussian_drift(
-            user.meta_vars[0], 
-            config.noise_drift[0], 
-            config.noise_drift[1], 
-            config.noise_range,
-        )
+        if config.noise_drift is not None:
+            user.meta_vars[0] = apply_gaussian_drift(
+                user.meta_vars[0], 
+                config.noise_drift[0], 
+                config.noise_drift[1], 
+                config.noise_range,
+            )
     
     # test once at the end
-    validate(env, teacher, sim, trainer.encoder, logger)
+    rwd, std_rwd, mae = validate(env, teacher, sim, trainer.encoder, logger)
+    results['rwd'].append(rwd)
+    results['rwd_std'].append(std_rwd)
+    results['mae'].append(mae)
 
     torch.save(trainer, config.models_path / 'mi_iter.pt')
+    results_path = config.results_path / exp_name / (f'noise_{constant_noise}'.replace('.', '_') + '.pkl')
+    results_path.parent.mkdir(exist_ok=True, parents=True)
+    with open(results_path, 'wb') as f:
+        pickle.dump(results, f)
+
+    if config.use_wandb:
+        wandb.finish()
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--exp", type=str, default="testing")
+    args = vars(parser.parse_args())
+
+    # for constant_alpha in np.linspace(0.001, 1.0, 5):
+    for constant_noise in np.linspace(0.001, 1.0, 5):
+        main(args["exp"], constant_noise, constant_alpha=None)

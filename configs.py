@@ -38,7 +38,7 @@ class TeacherConfig(BaseModel):
     adam_eps: float = 1.0e-8
     
     # nets
-    hidden_sizes: list = [256, 256]
+    hidden_sizes: list = [512, 512, 512, 512]
     activation: str = "relu"
     default_policy_scale: float = 1.0
     scale_lb: float = 0.1
@@ -118,9 +118,12 @@ class MIConfig(BaseModel):
     batch_size: int = 128
     epochs: int = 20
     lr: float = 1e-4
-    n_steps_rollout: int = 10_000
+    n_steps_rollout: int = 1000
     random_pertube_prob: float = 0.0
     action_noise: float = 0.0
+
+    # iter mi
+    aggregate_data: bool = False
 
 
 class BaseConfig(BaseModel):
@@ -131,6 +134,7 @@ class BaseConfig(BaseModel):
     mad_data_path: PosixPath = mad_base_path / "PreTrainingDataset"
     models_path: PosixPath = ROOT_PATH / "models"
     rollout_data_path: PosixPath = ROOT_PATH / "datasets" / "rollouts"
+    results_path: PosixPath = ROOT_PATH / "results"
     
     # wandb
     use_wandb: bool = True

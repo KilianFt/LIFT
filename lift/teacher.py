@@ -12,6 +12,7 @@ class ConditionedTeacher:
         noise_range: list[float] | None = [0.001, 1.], 
         alpha_range: list[float] | None = [0.001, 1.], 
     ):
+        self.is_meta = isinstance(teacher, MetaSAC)
         self.noise_range = noise_range
         self.alpha_range = alpha_range
         self.teacher = teacher
@@ -32,7 +33,7 @@ class ConditionedTeacher:
     def sample_action(self, obs, sample_mean=False):
         obs_ = copy.deepcopy(obs)
 
-        if self.meta_vars is not None:
+        if self.is_meta and self.meta_vars is not None:
             obs_["observation"] = np.concatenate([obs_["observation"], self.meta_vars], axis=-1)
         return self.teacher.sample_action(obs_, sample_mean)
 
