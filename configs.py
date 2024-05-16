@@ -146,7 +146,7 @@ class BaseConfig(BaseModel):
 
     # user model
     noise_range: list | None = [0.001, 1]
-    alpha_range: list | None = None
+    alpha_range: list | None = [0.001, 1]
     noise_drift: list | None = [-0.1, 0.2] # [offset, std]
     alpha_drift: list | None = [-0.1, 0.2] # [offset, std]
 

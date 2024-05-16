@@ -47,6 +47,7 @@ def main():
         config.teacher, 
         train_env,
         eval_env,
+        use_alpha=config.alpha_range != None,
     )
     sac.train(logger)
     sac.save(config.models_path / "teacher_meta.pt")

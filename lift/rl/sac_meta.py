@@ -9,12 +9,14 @@ from lift.rl.sac import SAC
 
 class MetaSAC(SAC):
     """Meta learning SAC"""
-    def __init__(self, config, train_env, eval_env):
+    def __init__(self, config, train_env, eval_env, use_alpha=True):
+        self.use_alpha = use_alpha
         super().__init__(config, train_env, eval_env)
     
     def _init_loss_module(self):
         # Create SAC loss
         self.loss_module = MetaSACLoss(
+            use_alpha=self.use_alpha,
             actor_network=self.model["policy"],
             qvalue_network=self.model["value"],
             num_qvalue_nets=2,
@@ -27,8 +29,9 @@ class MetaSAC(SAC):
 
 class MetaSACLoss(SACLoss):
     """SAC loss computed based on meta parameters"""
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, use_alpha, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
+        self.use_alpha = use_alpha
 
         assert self._version == 2, "torchrl SACLoss._version must be 2"
 
@@ -57,8 +60,10 @@ class MetaSACLoss(SACLoss):
                 f"Losses shape mismatch: {log_prob.shape} and {min_q_logprob.shape}"
             )
         
-        # alpha = tensordict["observation"][:, -1]
-        alpha = self._alpha
+        if self.use_alpha:
+            alpha = tensordict["observation"][:, -1]
+        else:
+            alpha = self._alpha
         return alpha * log_prob - min_q_logprob, {"log_prob": log_prob.detach()}
 
     def _compute_target_v2(self, tensordict) -> torch.Tensor:
@@ -98,8 +103,10 @@ class MetaSACLoss(SACLoss):
             ):
                 next_sample_log_prob = next_sample_log_prob.unsqueeze(-1)
             
-            # alpha = tensordict["observation"][:, -1:]
-            alpha = self._alpha
+            if self.use_alpha:
+                alpha = tensordict["observation"][:, -1:]
+            else:
+                alpha = self._alpha
             next_state_value = state_action_value - alpha * next_sample_log_prob
             next_state_value = next_state_value.min(0)[0]
             tensordict.set(
@@ -108,7 +115,9 @@ class MetaSACLoss(SACLoss):
             target_value = self.value_estimator.value_estimate(tensordict).squeeze(-1)
             return target_value
 
-    # def _alpha_loss(self, log_prob: torch.Tensor) -> torch.Tensor:
-    #     """Dummpy alpha loss multiplied with zero"""
-    #     alpha_loss = -self.log_alpha * (log_prob + self.target_entropy)
-    #     return alpha_loss * 0.
+    def _alpha_loss(self, log_prob: torch.Tensor) -> torch.Tensor:
+        """Dummpy alpha loss multiplied with zero"""
+        alpha_loss = -self.log_alpha * (log_prob + self.target_entropy)
+        if self.use_alpha:
+            alpha_loss *= 0.
+        return alpha_loss
