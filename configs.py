@@ -144,6 +144,10 @@ class BaseConfig(BaseModel):
     emg_range: list = [-128., 127.]
     desired_mad_labels: list = [0, 1, 2, 3, 4, 5, 6]
 
+    # user model
+    noise_range: list | None = [0.001, 1]
+    alpha_range: list | None = None
+
     seed: int = 100
     num_workers: int = 7
     teacher_train_timesteps: int = 150_000

@@ -21,6 +21,9 @@ from torchrl.collectors import SyncDataCollector
 from torchrl.data import TensorDictPrioritizedReplayBuffer, TensorDictReplayBuffer
 from torchrl.data.replay_buffers.storages import LazyMemmapStorage
 
+from configs import BaseConfig
+from lift.environments.teacher_envs import TeacherTransform
+
 
 class ResizeActionSpace(Transform):
     """ Transforms size of action space by reducing from the last dimension or zero padding
@@ -92,7 +95,8 @@ class ResizeActionSpace(Transform):
         return input_spec
 
 
-def gym_env_maker(env_name, cat_obs=True, cat_keys=None, device="cpu"):
+"""TODO: maybe figure out better way to pipe configs"""
+def gym_env_maker(env_name, config: BaseConfig | None = None, meta=False, cat_obs=True, cat_keys=None, device="cpu"):
     with set_gym_backend("gymnasium"):
         raw_env = GymEnv(env_name, device=device)
         in_keys = ["observation"]
@@ -111,6 +115,17 @@ def gym_env_maker(env_name, cat_obs=True, cat_keys=None, device="cpu"):
                 )
             )
         
+        if config is not None and meta:
+            transforms.append(
+                TeacherTransform(
+                    noise_range=config.noise_range,
+                    alpha_range=config.alpha_range,
+                    in_keys=["observation"], 
+                    out_keys=["observation"], 
+                    in_keys_inv=["action"], 
+                    out_keys_inv=["action"],
+                )
+            )
         env = TransformedEnv(raw_env, Compose(*transforms))
     return env
 
@@ -128,6 +143,8 @@ def apply_env_transforms(env, max_episode_steps=1000):
 
 def parallel_env_maker(
         env_name, 
+        config=None,
+        meta=False,
         cat_obs=True, 
         cat_keys=None,
         env_per_collector=1,
@@ -136,7 +153,7 @@ def parallel_env_maker(
     ):
     parallel_env = ParallelEnv(
         env_per_collector,
-        EnvCreator(lambda : gym_env_maker(env_name, cat_obs, cat_keys, device)),
+        EnvCreator(lambda : gym_env_maker(env_name, config, meta, cat_obs, cat_keys, device)),
         serial_for_single=True,
     )
     parallel_env = apply_env_transforms(parallel_env, max_eps_steps)

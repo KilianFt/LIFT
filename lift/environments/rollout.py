@@ -25,9 +25,9 @@ def rollout(
         action_noise: noise added to teacher actions.
 
     Returns:
-        data: dict with fields [obs, act, rwd, next_obs, done]. dict observations will be concatenated for each key.
+        data: dict with fields [obs, act, rwd, next_obs, done, info]. dict observations will be concatenated for each key.
     """
-    data = {"obs": [], "act": [], "rwd": [], "next_obs": [], "done": []}
+    data = {"obs": [], "act": [], "rwd": [], "next_obs": [], "done": [], "info": []}
 
     obs = env.reset()
     
@@ -56,6 +56,7 @@ def rollout(
         data["act"].append(act)
         data["next_obs"].append(copy.deepcopy(next_obs))
         data["done"].append(bool(done))
+        data["info"].append(copy.deepcopy(info))
         bar.update(1)
         
         obs = next_obs
@@ -68,10 +69,8 @@ def rollout(
     env.close()
 
     if isinstance(data["obs"][0], dict):
-        print("dict")
         keys = list(data["obs"][0].keys())
         next_keys = list(data["next_obs"][0].keys())
-        print(keys, next_keys)
         data["obs"] = {k: np.stack([o[k] for o in data["obs"]]) for k in keys}
         data["next_obs"] = {k: np.stack([o[k] for o in data["next_obs"]]) for k in next_keys}
     else:
@@ -80,6 +79,10 @@ def rollout(
     data["act"] = np.stack(data["act"])
     data["rwd"] = np.stack(data["rwd"])
     data["done"] = np.stack(data["done"])
+
+    info_keys = list(data["info"][0].keys())
+    info_keys = [k for k in info_keys if isinstance(data["info"][0][k], np.ndarray)]
+    data["info"] = {k: np.stack([o[k] for o in data["info"]]) for k in info_keys}
     return data
 
 if __name__ == "__main__":
@@ -90,7 +93,7 @@ if __name__ == "__main__":
         def __init__(self, env):
             self.env = env
         
-        def sample_action(self, obs):
+        def sample_action(self, obs, **kwargs):
             return self.env.action_space.sample()
     
     # test rollout obs concat and terminate_on_done
