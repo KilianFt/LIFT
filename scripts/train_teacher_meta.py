@@ -1,5 +1,5 @@
 from configs import BaseConfig
-from lift.rl.sac_meta import MetaSAC
+from lift.rl.sac import SAC
 from lift.rl.env_utils import parallel_env_maker
 from torchrl.record.loggers import generate_exp_name, get_logger
 
@@ -43,11 +43,10 @@ def main():
     train_env.set_seed(config.seed)
     eval_env.set_seed(config.seed)
     
-    sac = MetaSAC(
+    sac = SAC(
         config.teacher, 
         train_env,
         eval_env,
-        use_alpha=config.alpha_range != None,
     )
     sac.train(logger)
     sac.save(config.models_path / "teacher_meta.pt")

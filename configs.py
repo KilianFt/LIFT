@@ -38,7 +38,7 @@ class TeacherConfig(BaseModel):
     adam_eps: float = 1.0e-8
     
     # nets
-    hidden_sizes: list = [512, 512, 512, 512]
+    hidden_sizes: list = [256, 256]
     activation: str = "relu"
     default_policy_scale: float = 1.0
     scale_lb: float = 0.1
