@@ -45,15 +45,18 @@ class TeacherEnv(gym.Wrapper):
         env: NpGymEnv, 
         noise_range: list[float] | None = [0.001, 1.], 
         noise_slope: float = 0.5, 
+        append_obs: bool = True,
     ):
         """
         Args:
             noise_range (list[float] | None): range of noise applied to corrupt teacher actions
             noise_slope (float): slope of action magnitude dependent noise
+            append_obs (bool): whether to append noise level as observation
         """
         super().__init__(env)
         self.noise_range = noise_range
         self.noise_slope = noise_slope
+        self.append_obs = append_obs
 
         # add meta variables to observation space
         new_obs_dim = self.observation_space["observation"].shape[-1] 
@@ -71,8 +74,8 @@ class TeacherEnv(gym.Wrapper):
             noise = np.random.uniform(self.noise_range[0], self.noise_range[1])
             self.noise = np.array([noise], dtype=self.observation_space["observation"].dtype)
         
-        # if self.noise is not None:
-        #     obs["observation"] = np.concatenate([obs["observation"], self.noise])
+        if self.noise is not None and self.append_obs:
+            obs["observation"] = np.concatenate([obs["observation"], self.noise])
         return obs
 
     def step(self, action: np.ndarray):
@@ -85,8 +88,8 @@ class TeacherEnv(gym.Wrapper):
 
         obs, rwd, done, info = self.env.step(decoded_action)
 
-        # if self.noise is not None:
-        #     obs["observation"] = np.concatenate([obs["observation"], self.noise])
+        if self.noise is not None and self.append_obs:
+            obs["observation"] = np.concatenate([obs["observation"], self.noise])
         return obs, rwd, done, info
 
 
