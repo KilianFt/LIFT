@@ -39,7 +39,7 @@ class AlgoBase(ABC):
     def train(self, logger=None):
         pass
     
-    def sample_action(self, obs, sample_mean=False):
+    def get_action_dist(self, obs):
         if not isinstance(obs, TensorDict):
             obs = obs["observation"]
             if not isinstance(obs, torch.Tensor):
@@ -48,6 +48,10 @@ class AlgoBase(ABC):
 
         with torch.no_grad():
             act_dist = self.model.policy.get_dist(obs)
+        return act_dist
+    
+    def sample_action(self, obs, sample_mean=False):
+        act_dist = self.get_action_dist(obs)
         if sample_mean:
             act = act_dist.loc
         else:
