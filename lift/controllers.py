@@ -166,6 +166,10 @@ class MITrainer(L.LightningModule):
         self.beta_1 = config.encoder.beta_1
         self.beta_2 = config.encoder.beta_2
         self.kl_approx_method = config.encoder.kl_approx_method
+        self.mi_approx_method = config.encoder.mi_approx_method
+
+        assert self.kl_approx_method in ["logp", "abs", "mse"]
+        assert self.mi_approx_method in ["nce", "tuba"]
 
         self.x_dim = config.feature_size
         self.a_dim = config.action_size
@@ -198,6 +202,15 @@ class MITrainer(L.LightningModule):
             activation=nn.SiLU, 
             output_activation=None,
         ) 
+        if self.mi_approx_method == "tuba":
+            self.baseline = MLP(
+                self.a_dim, 
+                1, 
+                hidden_dims, 
+                dropout=0., 
+                activation=nn.SiLU, 
+                output_activation=None,
+            )
         self.teacher = teacher.model.policy
     
     def compute_infonce_loss(self, x, z):
@@ -209,6 +222,28 @@ class MITrainer(L.LightningModule):
         labels = torch.eye(len(h_x)).to(x.device)
         loss = cross_entropy(labels, p)
         return loss.mean()
+    
+    def compute_tuba_loss(self, x, z):
+        h_x = self.critic_x(x)
+        h_z = self.critic_z(z)
+        b_z = self.baseline(z)
+
+        idx_neg = torch.randperm(len(x))
+        h_x_neg = h_x[idx_neg]
+
+        f_pos = torch.sum(h_x * h_z, dim=-1, keepdim=True)
+        f_neg = torch.sum(h_x_neg * h_z, dim=-1, keepdim=True)
+        loss = f_pos - torch.exp(f_neg - b_z) - b_z + 1
+        return -loss.mean()
+    
+    def compute_mi_loss(self, x, z):
+        if self.mi_approx_method == "nce":
+            loss = self.compute_infonce_loss(x, z)
+        elif self.mi_approx_method == "tuba":
+            loss = self.compute_tuba_loss(x, z)
+        else:
+            raise ValueError("mi approximation method much be one of [nce, tuba]")
+        return loss
     
     def compute_kl_loss(self, o, z, z_dist):
         """Compute sample based kl divergence from teacher"""
@@ -238,10 +273,10 @@ class MITrainer(L.LightningModule):
     
     def compute_loss(self, x, o, z_dist):
         z = z_dist.rsample()
-        nce_loss = self.compute_infonce_loss(x, z)
+        mi_loss = self.compute_mi_loss(x, z)
         kl_loss = self.compute_kl_loss(o, z, z_dist)
-        loss = self.beta_1 * nce_loss + self.beta_2 * kl_loss
-        return loss, nce_loss, kl_loss
+        loss = self.beta_1 * mi_loss + self.beta_2 * kl_loss
+        return loss, mi_loss, kl_loss
     
     def training_step(self, batch, _):
         o = batch["obs"]
@@ -250,11 +285,11 @@ class MITrainer(L.LightningModule):
         a = a[:,:self.a_dim].clone() # remove last element from y
 
         z_dist = self.encoder.get_dist(x)
-        loss, nce_loss, kl_loss = self.compute_loss(x, o, z_dist)
+        loss, mi_loss, kl_loss = self.compute_loss(x, o, z_dist)
         mae = torch.abs(z_dist.mode - a).mean()
         
         self.log("train_loss", loss.data.item())
-        self.log("train_nce_loss", nce_loss.data.item())
+        self.log("train_mi_loss", mi_loss.data.item())
         self.log("train_kl_loss", kl_loss.data.item())
         self.log("train_mae", mae.data.item())
         return loss
@@ -266,12 +301,12 @@ class MITrainer(L.LightningModule):
         a = a[:,:self.a_dim].clone() # remove last element from y
         
         z_dist = self.encoder.get_dist(x)
-        loss, nce_loss, kl_loss = self.compute_loss(x, o, z_dist)
+        loss, mi_loss, kl_loss = self.compute_loss(x, o, z_dist)
 
         mae = torch.abs(z_dist.mode - a).mean()
 
         self.log("val_loss", loss.data.item())
-        self.log("val_nce_loss", nce_loss.data.item())
+        self.log("val_mi_loss", mi_loss.data.item())
         self.log("val_kl_loss", kl_loss.data.item())
         self.log("val_mae", mae.data.item())
         return loss

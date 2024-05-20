@@ -84,11 +84,12 @@ class OfflineRLConfig(BaseModel):
 
 
 class EncoderConfig(BaseModel):
-    h_dim: int = 128 # mi critic hidden dim
+    h_dim: int = 128 # mi critic output feature dim
     tau: float = 0.5
     beta_1: float = 1. # mi weight, use 0.5 for mse
     beta_2: float = 1. # kl weight
     kl_approx_method: str = "logp" # choices=[logp, abs, mse]
+    mi_approx_method: str = "nce" # choices=[nce, tuba]
     hidden_size: int = 512
     n_layers: int = 6
     dropout: float = 0.
@@ -115,10 +116,10 @@ class PretrainConfig(BaseModel):
 
 class MIConfig(BaseModel):
     train_ratio: float = 0.8
-    batch_size: int = 128
-    epochs: int = 20
+    batch_size: int = 256
+    epochs: int = 50
     lr: float = 1e-4
-    n_steps_rollout: int = 1000
+    n_steps_rollout: int = 10000
     random_pertube_prob: float = 0.0
     action_noise: float = 0.0
 
