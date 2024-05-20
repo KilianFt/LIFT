@@ -1,6 +1,6 @@
 from configs import BaseConfig
 from lift.rl.sac import SAC
-from lift.rl.utils import parallel_env_maker
+from lift.rl.env_utils import parallel_env_maker
 from torchrl.record.loggers import generate_exp_name, get_logger
 
 def main():
