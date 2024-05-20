@@ -8,9 +8,9 @@ import gymnasium as gym
 import numpy as np
 
 from lift.environments.gym_envs import NpGymEnv
+from lift.environments.teacher_envs import ConditionedTeacher
 from lift.environments.simulator import Simulator, SimulatorFactory
 from lift.rl.sac import SAC
-from lift.teacher import ConditionedTeacher
 
 
 class EMGEnv(gym.Wrapper):
@@ -109,7 +109,7 @@ class EMGTransform(Transform):
 if __name__ == '__main__':
     from torchrl.envs.utils import check_env_specs, step_mdp
     from configs import TeacherConfig, BaseConfig
-    from lift.rl.utils import gym_env_maker, apply_env_transforms
+    from lift.rl.env_utils import gym_env_maker, apply_env_transforms
 
     config = BaseConfig()
     teach_config = TeacherConfig()
