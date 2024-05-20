@@ -71,8 +71,8 @@ class TeacherEnv(gym.Wrapper):
             noise = np.random.uniform(self.noise_range[0], self.noise_range[1])
             self.noise = np.array([noise], dtype=self.observation_space["observation"].dtype)
         
-        if self.noise is not None:
-            obs["observation"] = np.concatenate([obs["observation"], self.noise])
+        # if self.noise is not None:
+        #     obs["observation"] = np.concatenate([obs["observation"], self.noise])
         return obs
 
     def step(self, action: np.ndarray):
@@ -85,8 +85,8 @@ class TeacherEnv(gym.Wrapper):
 
         obs, rwd, done, info = self.env.step(decoded_action)
 
-        if self.noise is not None:
-            obs["observation"] = np.concatenate([obs["observation"], self.noise])
+        # if self.noise is not None:
+        #     obs["observation"] = np.concatenate([obs["observation"], self.noise])
         return obs, rwd, done, info
 
 
