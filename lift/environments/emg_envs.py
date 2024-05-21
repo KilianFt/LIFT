@@ -59,7 +59,7 @@ class EMGEnv(gym.Wrapper):
 
         info["teacher_action"] = self.teacher_action.flatten().copy()
         if isinstance(self.teacher, ConditionedTeacher):
-            info["teacher_meta_vars"] = self.teacher.meta_vars.copy()
+            info["teacher_meta_vars"] = self.teacher.get_meta_vars()
         self.teacher_action = next_teacher_action
         return obs, rwd, done, info
     

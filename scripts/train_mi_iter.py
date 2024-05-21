@@ -16,7 +16,8 @@ from lift.environments.emg_envs import EMGEnv
 from lift.environments.simulator import SimulatorFactory
 from lift.environments.rollout import rollout
 
-from lift.teacher import ConditionedTeacher, load_teacher, apply_gaussian_drift
+from lift.teacher import load_teacher
+from lift.environments.teacher_envs import apply_gaussian_drift, ConditionedTeacher
 from lift.datasets import get_dataloaders
 from lift.controllers import MITrainer, EMGAgent
 
@@ -108,16 +109,19 @@ def append_dataset(dataset, data):
             else:
                 dataset[k] = np.concatenate([dataset[k], v], axis=0)
 
-def main(exp_name, constant_noise, constant_alpha):
-    config = BaseConfig()
+def main(kwargs=None):
+    if kwargs is not None:
+        config = BaseConfig(**kwargs)
+    else:
+        config = BaseConfig()
+
     L.seed_everything(config.seed)
 
-    config.noise_range = [constant_noise, constant_noise]
-    if constant_alpha is not None:
-        config.alpha_range = [constant_alpha, constant_alpha]
-
     if config.use_wandb:
-        _ = wandb.init(project='lift', tags='align_teacher')
+        tags = ['align_teacher']
+        if kwargs is not None:
+            tags.append(kwargs['tag'])
+        _ = wandb.init(project='lift', tags=tags)
         # config = BaseConfig(**wandb.config) this will overwrite the noise_range
         logger = WandbLogger()
         wandb.config.update(config.model_dump())
@@ -140,7 +144,9 @@ def main(exp_name, constant_noise, constant_alpha):
     user = ConditionedTeacher(
         user, 
         noise_range=config.noise_range,
+        noise_slope_range=config.noise_slope_range,
         alpha_range=config.alpha_range,
+        alpha_apply_range=config.alpha_apply_range,
     )
     user.reset()
 
@@ -171,7 +177,6 @@ def main(exp_name, constant_noise, constant_alpha):
         emg_env = EMGEnv(env, user, sim)
         emg_policy = EMGAgent(trainer.encoder)
 
-        """TODO: reduce rollout steps here"""
         data = maybe_rollout(emg_env, emg_policy, config, use_saved=False)
         rwd, std_rwd, mae = validate_data(data, logger)
         results['rwd'].append(rwd)
@@ -186,13 +191,15 @@ def main(exp_name, constant_noise, constant_alpha):
 
         # update user meta vars
         if config.noise_drift is not None:
-            user.meta_vars[0] = apply_gaussian_drift(
-                user.meta_vars[0], 
-                config.noise_drift[0], 
-                config.noise_drift[1], 
+            user_meta_vars = user.get_meta_vars()
+            user_meta_vars['noise'] = apply_gaussian_drift(
+                user_meta_vars['noise'],
+                config.noise_drift[0],
+                config.noise_drift[1],
                 config.noise_range,
             )
-    
+            user.set_meta_vars(user_meta_vars)
+
     # test once at the end
     rwd, std_rwd, mae = validate(env, teacher, sim, trainer.encoder, logger)
     results['rwd'].append(rwd)
@@ -200,19 +207,32 @@ def main(exp_name, constant_noise, constant_alpha):
     results['mae'].append(mae)
 
     torch.save(trainer, config.models_path / 'mi_iter.pt')
-    results_path = config.results_path / exp_name / (f'noise_{constant_noise}'.replace('.', '_') + '.pkl')
-    results_path.parent.mkdir(exist_ok=True, parents=True)
-    with open(results_path, 'wb') as f:
-        pickle.dump(results, f)
 
     if config.use_wandb:
         wandb.finish()
 
 if __name__ == "__main__":
+    import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--exp", type=str, default="testing")
-    args = vars(parser.parse_args())
-
-    # for constant_alpha in np.linspace(0.001, 1.0, 5):
-    for constant_noise in np.linspace(0.001, 1.0, 5):
-        main(args["exp"], constant_noise, constant_alpha=None)
+    parser.add_argument("--sweep", action="store_true")
+    parser.add_argument("--baseline", action="store_true")
+    args = parser.parse_args()
+    
+    if args.sweep:
+        # seeds = [42, 123, 456, 789]
+        for constant_alpha in np.linspace(1.0, 3.0, 5):
+            for constant_noise in np.linspace(0.001, 1.0, 5):
+                kwargs = {"alpha_range": [constant_alpha]*2,
+                          "noise_range": [constant_noise]*2,
+                          "noise_slope_range": [constant_noise]*2,
+                          "tag": "mi_sweep",}
+                main(kwargs)
+    elif args.baseline:
+        kwargs = {
+            "encoder": {"beta_1": 0.,
+                        "kl_approx_method": "mse"},
+            "tag": "baseline",
+        }
+        main(kwargs)
+    else:
+        main()

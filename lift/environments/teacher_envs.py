@@ -206,6 +206,14 @@ class ConditionedTeacher:
         if self.alpha_range is not None:
             self.alpha = np.random.uniform(self.alpha_range[0], self.alpha_range[1])
     
+    def get_meta_vars(self):
+        return dict(noise=self.noise, noise_slope=self.noise_slope, alpha=self.alpha)
+    
+    def set_meta_vars(self, meta_vars):
+        self.noise = meta_vars["noise"]
+        self.noise_slope = meta_vars["noise_slope"]
+        self.alpha = meta_vars["alpha"]
+
     def get_action_dist(self, obs):
         obs_ = copy.deepcopy(obs)
 
