@@ -114,7 +114,7 @@ def gym_env_maker(env_name, config: BaseConfig | None = None, meta=False, cat_ob
             transforms.append(
                 TeacherTransform(
                     noise_range=config.noise_range,
-                    noise_slope=config.noise_slope,
+                    noise_slope_range=config.noise_slope_range,
                     in_keys=["observation"], 
                     out_keys=["observation"], 
                     in_keys_inv=["action"], 

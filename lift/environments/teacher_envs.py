@@ -20,9 +20,9 @@ def compute_noise_scale(action: np.ndarray | torch.Tensor, base_noise: float, sl
 
 def compute_alpha_scale(obs: np.ndarray, max_alpha: float, apply_range: list[float]):
     """Linear scale alpha from 1 to max_alpha"""
-    desired_goal = obs[..., :3]
-    achieved_goal = obs[..., -3:]
-    dist_goal = np.abs(achieved_goal - desired_goal).clip(0., apply_range[1]) - apply_range[0]
+    cur_pos = obs[..., :3]
+    goal = obs[..., 10:13]
+    dist_goal = np.abs(cur_pos - goal).clip(0., apply_range[1]) - apply_range[0]
     alpha = 1 + (max_alpha - 1) / (apply_range[1] - apply_range[0]) * dist_goal
     alpha = alpha.clip(1., max_alpha)
     return alpha
@@ -43,24 +43,24 @@ class TeacherEnv(gym.Wrapper):
     def __init__(
         self, 
         env: NpGymEnv, 
-        noise_range: list[float] | None = [0.001, 1.], 
-        noise_slope: float = 0.5, 
+        noise_range: list[float] | None = [0., 1.], 
+        noise_slope_range: list[float] | None = [0., 1.], 
         append_obs: bool = True,
     ):
         """
         Args:
             noise_range (list[float] | None): range of noise applied to corrupt teacher actions
-            noise_slope (float): slope of action magnitude dependent noise
+            noise_slope_range (list[float] | None): range of slope of action magnitude dependent noise
             append_obs (bool): whether to append noise level as observation
         """
         super().__init__(env)
         self.noise_range = noise_range
-        self.noise_slope = noise_slope
+        self.noise_slope_range = noise_slope_range
         self.append_obs = append_obs
 
         # add meta variables to observation space
         new_obs_dim = self.observation_space["observation"].shape[-1] 
-        new_obs_dim += int(noise_range != None)
+        new_obs_dim += sum([noise_range != None, noise_slope_range != None])
         self.observation_space["observation"] = resize_gym_box_space(
             self.observation_space["observation"], new_obs_dim
         )
@@ -74,8 +74,16 @@ class TeacherEnv(gym.Wrapper):
             noise = np.random.uniform(self.noise_range[0], self.noise_range[1])
             self.noise = np.array([noise], dtype=self.observation_space["observation"].dtype)
         
-        if self.noise is not None and self.append_obs:
+        self.noise_slope = 0.
+        if self.noise_slope_range is not None:
+            noise_slope = np.random.uniform(self.noise_slope_range[0], self.noise_slope_range[1])
+            self.noise_slope = np.array([noise_slope], dtype=self.observation_space["observation"].dtype)
+        
+        if self.noise_range is not None and self.append_obs:
             obs["observation"] = np.concatenate([obs["observation"], self.noise])
+
+        if self.noise_slope_range is not None and self.append_obs:
+            obs["observation"] = np.concatenate([obs["observation"], self.noise_slope])
         return obs
 
     def step(self, action: np.ndarray):
@@ -90,6 +98,8 @@ class TeacherEnv(gym.Wrapper):
 
         if self.noise is not None and self.append_obs:
             obs["observation"] = np.concatenate([obs["observation"], self.noise])
+        if self.noise_slope is not None and self.append_obs:
+            obs["observation"] = np.concatenate([obs["observation"], self.noise_slope])
         return obs, rwd, done, info
 
 
@@ -98,7 +108,7 @@ class TeacherTransform(Transform):
     def __init__(
         self,
         noise_range: list[float] | None,
-        noise_slope: float = 0.5,
+        noise_slope_range: list[float] | None,
         in_keys: Sequence[str] | None = None,
         out_keys: Sequence[str] | None = None,
         in_keys_inv: Sequence[str] | None = None,
@@ -107,17 +117,18 @@ class TeacherTransform(Transform):
         """
         Args:
             noise_range (list[float] | None): range of noise applied to corrupt teacher actions
-            noise_slope (float): slope of action magnitude dependent noise
+            noise_slope_range (list[float] | None): range of slope of action magnitude dependent noise
         """
         super().__init__(in_keys, out_keys, in_keys_inv, out_keys_inv)
         self.noise_range = noise_range
-        self.noise_slope = noise_slope
+        self.noise_slope_range = noise_slope_range
 
     def _apply_transform(self, obs: torch.Tensor) -> torch.Tensor:
+        new_obs = obs.clone()
         if self.noise is not None:
-            new_obs = torch.cat([obs, self.noise], dim=-1)
-        else:
-            new_obs = obs.clone()
+            new_obs = torch.cat([new_obs, self.noise], dim=-1)
+        if self.noise_slope is not None:
+            new_obs = torch.cat([new_obs, self.noise_slope], dim=-1)
         return new_obs
     
     def _inv_apply_transform(self, action: torch.Tensor) -> torch.Tensor:
@@ -137,14 +148,21 @@ class TeacherTransform(Transform):
         self.noise = None
         if self.noise_range is not None:
             self.noise = torch.rand(1).uniform_(self.noise_range[0], self.noise_range[1])
+
+        self.noise_slope = torch.zeros(1)
+        if self.noise_slope_range is not None:
+            self.noise_slope = torch.rand(1).uniform_(self.noise_slope_range[0], self.noise_slope_range[1])
         
-        if self.noise is not None:
+        if self.noise_range is not None:
             tensordict_reset["observation"] = torch.cat([tensordict_reset["observation"], self.noise], dim=-1)
+
+        if self.noise_slope_range is not None:
+            tensordict_reset["observation"] = torch.cat([tensordict_reset["observation"], self.noise_slope], dim=-1)
         return tensordict_reset
     
     def transform_observation_spec(self, observation_spec):
         new_obs_dim = list(observation_spec["observation"].shape)
-        new_obs_dim[-1] += int(self.noise_range != None)
+        new_obs_dim[-1] += sum([self.noise_range != None, self.noise_slope_range != None])
         observation_spec["observation"].shape = torch.Size(new_obs_dim)
         return observation_spec
 
@@ -156,18 +174,20 @@ class ConditionedTeacher:
     def __init__(
         self, 
         teacher: SAC | MetaSAC, 
-        noise_range: list[float] | None = [0.001, 1.], 
-        alpha_range: list[float] | None = [0.001, 1.], 
+        noise_range: list[float] | None = [0., 1.], 
+        noise_slope_range: list[float] | None = [0., 1.], 
+        alpha_range: list[float] | None = [0., 1.], 
         alpha_apply_range: list[float] | None = [1., 3.],
     ):
         """
         Args:
             noise_range (list[float] | None): range of base noise to condition the teacher on
+            noise_slope_range (list[float] | None): range of slope of action magnitude dependent noise
             alpha_range (list[float] | None): range of base alpha to modify teacher action sampling
-            alpha_range (list[float] | None): range of goal distance to apply alpha scaling
+            alpha_apply_range (list[float] | None): range of goal distance to apply alpha scaling
         """
-        self.is_meta = isinstance(teacher, MetaSAC)
         self.noise_range = noise_range
+        self.noise_slope_range = noise_slope_range
         self.alpha_range = alpha_range
         self.alpha_apply_range = alpha_apply_range
 
@@ -175,24 +195,35 @@ class ConditionedTeacher:
 
     def reset(self):
         self.noise = None
+        self.noise_slope = None
         self.alpha = None
         if self.noise_range is not None:
             noise = np.random.uniform(self.noise_range[0], self.noise_range[1])
             self.noise = np.array([noise])
+        if self.noise_slope_range is not None:
+            noise_slope = np.random.uniform(self.noise_slope_range[0], self.noise_slope_range[1])
+            self.noise_slope = np.array([noise_slope])
         if self.alpha_range is not None:
             self.alpha = np.random.uniform(self.alpha_range[0], self.alpha_range[1])
     
-    def sample_action(self, obs, sample_mean=False):
+    def get_action_dist(self, obs):
         obs_ = copy.deepcopy(obs)
 
-        if self.is_meta and self.noise is not None:
-            obs_["observation"] = np.concatenate([obs_["observation"], self.noise], axis=-1)
-        
+        if self.noise is not None:
+            noise = np.ones_like(obs_["observation"][..., :1]) * self.noise
+            obs_["observation"] = np.concatenate([obs_["observation"], noise], axis=-1)
+        if self.noise_slope is not None:
+            noise_slope = np.ones_like(obs_["observation"][..., :1]) * self.noise_slope
+            obs_["observation"] = np.concatenate([obs_["observation"], noise_slope], axis=-1)
         act_dist = self.teacher.get_action_dist(obs_)
 
         if self.alpha is not None:
             alpha = compute_alpha_scale(obs["observation"], self.alpha, self.alpha_apply_range)
             act_dist.scale *= alpha
+        return act_dist
+    
+    def sample_action(self, obs, sample_mean=False):
+        act_dist = self.get_action_dist(obs)
         
         if sample_mean:
             act = act_dist.loc
@@ -211,12 +242,14 @@ if __name__ == "__main__":
     # test np env
     env = NpGymEnv("FetchReachDense-v2")
     noise_range = [0.001, 1.]
-    obs_dim = env.observation_space["observation"].shape[-1] + 1
-    env = TeacherEnv(env, noise_range=noise_range, noise_slope=0.5)
+    noise_slope_range = [0.001, 1.]
+    obs_dim = env.observation_space["observation"].shape[-1] + 2
+    env = TeacherEnv(env, noise_range=noise_range, noise_slope_range=noise_slope_range)
     
     obs = env.reset()
     act = env.action_space.sample()
     next_obs, rwd, done, info = env.step(act)
+    print(next_obs["observation"].shape)
     assert env.observation_space["observation"].shape == (obs_dim,)
     assert obs["observation"].shape == (obs_dim,)
     assert next_obs["observation"].shape == (obs_dim,)
@@ -225,7 +258,7 @@ if __name__ == "__main__":
     env = gym_env_maker("FetchReachDense-v2")
     env = TransformedEnv(env, Compose(TeacherTransform(
         noise_range, 
-        noise_slope=0.5,
+        noise_slope_range,
         in_keys=["observation"], 
         out_keys=["observation"], 
         in_keys_inv=["action"], 
@@ -241,18 +274,22 @@ if __name__ == "__main__":
     assert next_obs1["next"]["observation"].shape == (obs_dim,)
     assert obs2["observation"].shape == (obs_dim,)
     assert next_obs2["next"]["observation"].shape == (obs_dim,)
+    assert (obs1["observation"][-2:] == next_obs1["next"]["observation"][-2:]).all()
+    assert (obs2["observation"][-2:] == next_obs2["next"]["observation"][-2:]).all()
+    assert (obs1["observation"][-2:] != obs2["observation"][-2:]).all()
 
     # test conditional teacher
     config = BaseConfig()
     env = NpGymEnv("FetchReachDense-v2")
-    torchrl_env = apply_env_transforms(gym_env_maker("FetchReachDense-v2"))
+    torchrl_env = apply_env_transforms(gym_env_maker("FetchReachDense-v2", config, meta=True))
     teacher = SAC(config.teacher, torchrl_env, torchrl_env)
 
     noise_range = [0.001, 1.]
+    noise_slope_range = [0.001, 1.]
     alpha_range = [1., 3.]
     alpha_apply_range = [1., 3.]
     conditioned_teacher = ConditionedTeacher(
-        teacher, noise_range, alpha_range, alpha_apply_range
+        teacher, noise_range, noise_slope_range, alpha_range, alpha_apply_range
     )
 
     obs = env.reset()

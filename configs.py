@@ -150,8 +150,8 @@ class BaseConfig(BaseModel):
     desired_mad_labels: list = [0, 1, 2, 3, 4, 5, 6]
 
     # user model
-    noise_range: list | None = [0.001, 1] # noise added to teacher env
-    noise_slope: float = 0.5 # action dependent noise
+    noise_range: list | None = [0., 1.] # noise added to teacher env
+    noise_slope_range: list | None = [0., 1.] # action dependent noise
     alpha_range: list | None = [1., 3.] # ratio multiplied to teacher std
     alpha_apply_range: list | None = [1., 3.] # goal dist range to apply alpha scaling
     noise_drift: list | None = [-0.1, 0.2] # [offset, std]
