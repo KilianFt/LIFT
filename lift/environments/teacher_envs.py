@@ -4,6 +4,7 @@ import torch
 from tensordict import TensorDict, TensorDictBase
 from torchrl.envs import Transform
 from torchrl.envs import Compose
+from torchrl.modules import TanhNormal
 
 import gymnasium as gym
 import numpy as np
@@ -227,7 +228,9 @@ class ConditionedTeacher:
 
         if self.alpha is not None:
             alpha = compute_alpha_scale(obs["observation"], self.alpha, self.alpha_apply_range)
-            act_dist.scale *= alpha
+            new_scale =  act_dist.scale * alpha
+            act_dist = TanhNormal(loc=act_dist.loc, scale=new_scale,
+                                  upscale=act_dist.upscale, min=act_dist.min, max=act_dist.max)
         return act_dist
     
     def sample_action(self, obs, sample_mean=False):
