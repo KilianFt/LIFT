@@ -2,6 +2,7 @@
 Iterative MI training
 """
 import argparse
+import logging
 import copy
 import pickle
 import wandb
@@ -21,15 +22,16 @@ from lift.environments.teacher_envs import apply_gaussian_drift, ConditionedTeac
 from lift.datasets import get_dataloaders
 from lift.controllers import MITrainer, EMGAgent
 
+logging.basicConfig(level=logging.INFO)
 
 def maybe_rollout(env: EMGEnv, policy: EMGAgent, config: BaseConfig, use_saved=True):
     rollout_file = config.rollout_data_path / f"mi_rollout_data.pkl"
     if use_saved and rollout_file.exists():
-        print(f"\nload rollout data from file: {rollout_file}")
+        logging.info(f"\nload rollout data from file: {rollout_file}")
         with open(rollout_file, "rb") as f:
             data = pickle.load(f)
     else:
-        print("collecting training data from teacher")
+        logging.info("collecting training data from teacher")
         data = rollout(
             env,
             policy,
@@ -49,7 +51,7 @@ def validate_data(data, logger):
     mae = np.abs(data["info"]["teacher_action"] - data["act"]).mean()
     mean_rwd = data["rwd"].mean()
     std_rwd = data["rwd"].std()
-    print(f"encoder reward mean: {mean_rwd:.4f}, std: {std_rwd:.4f}, mae: {mae:.4f}")
+    logging.info(f"encoder reward mean: {mean_rwd:.4f}, std: {std_rwd:.4f}, mae: {mae:.4f}")
     if logger is not None:
         logger.log_metrics({"encoder_reward": mean_rwd, "encoder_mae": mae})
 
@@ -161,16 +163,6 @@ def main(kwargs=None):
     num_sessions = 10
 
     dataset = {}
-    results = {
-        'noise': config.noise_range,
-        'noise_drift': config.noise_drift,
-        'alpha': config.alpha_range,
-        'alpha_drift': config.alpha_drift,
-        'wandb_id': wandb.run.id if config.use_wandb else 'local',
-        'rwd': [],
-        'rwd_std': [],
-        'mae': [],
-    }
 
     for i in range(num_sessions):
         # collect user data
@@ -178,10 +170,7 @@ def main(kwargs=None):
         emg_policy = EMGAgent(trainer.encoder)
 
         data = maybe_rollout(emg_env, emg_policy, config, use_saved=False)
-        rwd, std_rwd, mae = validate_data(data, logger)
-        results['rwd'].append(rwd)
-        results['rwd_std'].append(std_rwd)
-        results['mae'].append(mae)
+        validate_data(data, logger)
 
         append_dataset(dataset, data)
 
@@ -189,24 +178,30 @@ def main(kwargs=None):
         dataset = dataset if config.mi.aggregate_data else data
         train(dataset, trainer, logger, config)
 
+        # TODO: beta annealing
+
+        user_meta_vars = user.get_meta_vars()
+
         # update user meta vars
         if config.noise_drift is not None:
-            user_meta_vars = user.get_meta_vars()
             user_meta_vars['noise'] = apply_gaussian_drift(
                 user_meta_vars['noise'],
                 config.noise_drift[0],
                 config.noise_drift[1],
                 config.noise_range,
             )
-            user.set_meta_vars(user_meta_vars)
+
+        if config.user_learn_rate is not None:
+            user_meta_vars['alpha'] -= config.user_learn_rate
+            user_meta_vars['alpha'] = max(user_meta_vars['alpha'], 1)
+            logging.info(f"new alpha: {user_meta_vars['alpha']}")
+
+        user.set_meta_vars(user_meta_vars)
 
     # test once at the end
-    rwd, std_rwd, mae = validate(env, teacher, sim, trainer.encoder, logger)
-    results['rwd'].append(rwd)
-    results['rwd_std'].append(std_rwd)
-    results['mae'].append(mae)
+    validate(env, teacher, sim, trainer.encoder, logger)
 
-    torch.save(trainer, config.models_path / 'mi_iter.pt')
+    # torch.save(trainer, config.models_path / 'mi_iter.pt')
 
     if config.use_wandb:
         wandb.finish()
@@ -219,14 +214,24 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     if args.sweep:
+        import itertools
         # seeds = [42, 123, 456, 789]
-        for constant_alpha in np.linspace(1.0, 3.0, 5):
-            for constant_noise in np.linspace(0.001, 1.0, 5):
-                kwargs = {"alpha_range": [constant_alpha]*2,
-                          "noise_range": [constant_noise]*2,
-                          "noise_slope_range": [constant_noise]*2,
-                          "tag": "mi_sweep",}
-                main(kwargs)
+        # alphas = [1.0, 3.0]
+        alphas = [3.0]
+        user_learn_rate = (alphas[0] - 1) / 10. # expert user at end of training
+
+        teacher_noises = np.linspace(0.001, .9, 5)
+        teacher_noise_slopes = np.linspace(0.001, .9, 5)
+        combinations = itertools.product(alphas, teacher_noises, teacher_noise_slopes)
+
+        for combination in combinations:
+            constant_alpha, constant_noise, constant_noise_slope = combination
+            kwargs = {"alpha_range": [constant_alpha]*2,
+                        "user_learn_rate": user_learn_rate,
+                        "noise_range": [constant_noise]*2,
+                        "noise_slope_range": [constant_noise_slope]*2,
+                        "tag": "mi_sweep_kl05_learning",}
+            main(kwargs)
     elif args.baseline:
         kwargs = {
             "encoder": {"beta_1": 0.,

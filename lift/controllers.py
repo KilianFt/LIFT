@@ -264,7 +264,7 @@ class MITrainer(L.LightningModule):
         elif self.kl_approx_method == "mse":
             with torch.no_grad():
                 teacher_dist = self.teacher.get_dist(teacher_inputs)
-                a_teacher = teacher_dist.mode[..., :-1]
+                a_teacher = teacher_dist.mode
             kl = torch.pow(z - a_teacher, 2).mean()
         else:
             raise ValueError("kl approximation method much be one of [logp, abs, mse]")

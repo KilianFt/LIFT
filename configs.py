@@ -86,8 +86,8 @@ class OfflineRLConfig(BaseModel):
 class EncoderConfig(BaseModel):
     h_dim: int = 128 # mi critic output feature dim
     tau: float = 0.5
-    beta_1: float = 1. # mi weight, use 0.5 for mse
-    beta_2: float = 1. # kl weight
+    beta_1: float = 1.0 # mi weight, use 0.5 for mse
+    beta_2: float = .5 # kl weight
     kl_approx_method: str = "logp" # choices=[logp, abs, mse]
     mi_approx_method: str = "nce" # choices=[nce, tuba]
     hidden_size: int = 512
@@ -119,7 +119,7 @@ class MIConfig(BaseModel):
     batch_size: int = 256
     epochs: int = 50
     lr: float = 1e-4
-    n_steps_rollout: int = 10000
+    n_steps_rollout: int = 1_000
     random_pertube_prob: float = 0.0
     action_noise: float = 0.0
 
@@ -153,9 +153,10 @@ class BaseConfig(BaseModel):
     noise_range: list | None = [0., 1.] # noise added to teacher env
     noise_slope_range: list | None = [0., 1.] # action dependent noise
     alpha_range: list | None = [1., 3.] # ratio multiplied to teacher std
-    alpha_apply_range: list | None = [1., 3.] # goal dist range to apply alpha scaling
-    noise_drift: list | None = [-0.1, 0.2] # [offset, std]
-    alpha_drift: list | None = [-0.1, 0.2] # [offset, std]
+    alpha_apply_range: list | None = [0., 3.] # goal dist range to apply alpha scaling
+    noise_drift: list | None = None # [offset, std]
+    alpha_drift: list | None = None # [-0.1, 0.2] # [offset, std]
+    user_learn_rate: float | None = None
 
     seed: int = 100
     num_workers: int = 7

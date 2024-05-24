@@ -1,6 +1,7 @@
 import pickle
 import wandb
 import torch
+import numpy as np
 import lightning as L
 from pytorch_lightning.loggers import WandbLogger
 
@@ -49,9 +50,11 @@ def validate(env, teacher, sim, encoder, logger):
     )
     mean_rwd = data["rwd"].mean()
     std_rwd = data["rwd"].std()
+    mae = np.abs(data["info"]["teacher_action"] - data["act"]).mean()
+
     print(f"encoder reward mean: {mean_rwd:.4f}, std: {std_rwd:.4f}")
     if logger is not None:
-        logger.log_metrics({"encoder_reward": mean_rwd})
+        logger.log_metrics({"encoder_reward": mean_rwd, "encoder_mae": mae, "encoder_std": std_rwd})
     return data
 
 def train(data, model, logger, config: BaseConfig):
@@ -92,7 +95,7 @@ def main(kwargs):
     if config.use_wandb:
         tags = ['align_teacher']
         if kwargs is not None:
-            tags.append('beta_sweep')
+            tags.append('beta_sweep_2')
         _ = wandb.init(project='lift', tags=tags)
 
         if kwargs is None:
