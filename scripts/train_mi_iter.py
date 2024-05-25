@@ -191,9 +191,13 @@ def main(kwargs=None):
                 config.noise_range,
             )
 
-        if config.user_learn_rate is not None:
-            user_meta_vars['alpha'] -= config.user_learn_rate
-            user_meta_vars['alpha'] = max(user_meta_vars['alpha'], 1)
+        if config.alpha_drift is not None:
+            user_meta_vars['alpha'] = apply_gaussian_drift(
+                user_meta_vars['alpha'],
+                config.alpha_drift[0],
+                config.alpha_drift[1],
+                config.alpha_range,
+            )
             logging.info(f"new alpha: {user_meta_vars['alpha']}")
 
         user.set_meta_vars(user_meta_vars)
@@ -215,10 +219,9 @@ if __name__ == "__main__":
     
     if args.sweep:
         import itertools
-        # seeds = [42, 123, 456, 789]
+        # seeds = [100, 42, 123, 789] # 456
         # alphas = [1.0, 3.0]
         alphas = [3.0]
-        user_learn_rate = (alphas[0] - 1) / 10. # expert user at end of training
 
         teacher_noises = np.linspace(0.001, .9, 5)
         teacher_noise_slopes = np.linspace(0.001, .9, 5)
@@ -227,16 +230,17 @@ if __name__ == "__main__":
         for combination in combinations:
             constant_alpha, constant_noise, constant_noise_slope = combination
             kwargs = {"alpha_range": [constant_alpha]*2,
-                        "user_learn_rate": user_learn_rate,
                         "noise_range": [constant_noise]*2,
                         "noise_slope_range": [constant_noise_slope]*2,
                         "tag": "mi_sweep_kl05_learning",}
             main(kwargs)
     elif args.baseline:
         kwargs = {
-            "encoder": {"beta_1": 0.,
-                        "kl_approx_method": "mse"},
-            "tag": "baseline",
+            "seed": 789,
+            "encoder": {
+                "beta_1": 0.,
+                "kl_approx_method": "mse"},
+            "tag": "baseline_drift",
         }
         main(kwargs)
     else:
