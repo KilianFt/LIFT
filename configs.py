@@ -118,13 +118,14 @@ class MIConfig(BaseModel):
     train_ratio: float = 0.8
     batch_size: int = 256
     epochs: int = 50
+    max_steps: int = 500
     lr: float = 1e-4
     n_steps_rollout: int = 1_000
     random_pertube_prob: float = 0.0
     action_noise: float = 0.0
 
     # iter mi
-    aggregate_data: bool = False
+    aggregate_data: bool = True
 
 
 class BaseConfig(BaseModel):
@@ -140,6 +141,7 @@ class BaseConfig(BaseModel):
     # wandb
     use_wandb: bool = True
     project_name: str = "lift"
+    run_name: str | None = None
     wandb_mode: str = "online"
 
     # data

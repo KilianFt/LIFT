@@ -36,6 +36,7 @@ def maybe_rollout(env: EMGEnv, policy: EMGAgent, config: BaseConfig, use_saved=T
             env,
             policy,
             n_steps=config.mi.n_steps_rollout,
+            sample_mean=True,
             terminate_on_done=False,
             reset_on_done=True,
             random_pertube_prob=config.mi.random_pertube_prob,
@@ -64,6 +65,7 @@ def validate(env, teacher, sim, encoder, logger):
         emg_env, 
         agent, 
         n_steps=1000, 
+        sample_mean=True,
         terminate_on_done=False,
         reset_on_done=True,
     )
@@ -86,6 +88,7 @@ def train(data, model, logger, config: BaseConfig):
 
     trainer = L.Trainer(
         max_epochs=config.mi.epochs, 
+        max_steps=config.mi.max_steps,
         log_every_n_steps=1, 
         check_val_every_n_epoch=1,
         enable_checkpointing=False, 
@@ -123,7 +126,7 @@ def main(kwargs=None):
         tags = ['align_teacher']
         if kwargs is not None:
             tags.append(kwargs['tag'])
-        _ = wandb.init(project='lift', tags=tags)
+        _ = wandb.init(project='lift', name=config.run_name, tags=tags)
         # config = BaseConfig(**wandb.config) this will overwrite the noise_range
         logger = WandbLogger()
         wandb.config.update(config.model_dump())
@@ -166,6 +169,7 @@ def main(kwargs=None):
 
     for i in range(num_sessions):
         # collect user data
+        print("user meta vars", user.get_meta_vars())
         emg_env = EMGEnv(env, user, sim)
         emg_policy = EMGAgent(trainer.encoder)
 
@@ -203,7 +207,7 @@ def main(kwargs=None):
         user.set_meta_vars(user_meta_vars)
 
     # test once at the end
-    validate(env, teacher, sim, trainer.encoder, logger)
+    validate(env, user, sim, trainer.encoder, logger)
 
     # torch.save(trainer, config.models_path / 'mi_iter.pt')
 
@@ -219,29 +223,32 @@ if __name__ == "__main__":
     
     if args.sweep:
         import itertools
-        # seeds = [100, 42, 123, 789] # 456
-        # alphas = [1.0, 3.0]
-        alphas = [3.0]
+        seeds = [100, 42, 123, 789] # 456
+        alphas = [1.0, 3.0]
 
         teacher_noises = np.linspace(0.001, .9, 5)
         teacher_noise_slopes = np.linspace(0.001, .9, 5)
-        combinations = itertools.product(alphas, teacher_noises, teacher_noise_slopes)
+        combinations = itertools.product(alphas, teacher_noises, teacher_noise_slopes, seeds)
 
         for combination in combinations:
-            constant_alpha, constant_noise, constant_noise_slope = combination
-            kwargs = {"alpha_range": [constant_alpha]*2,
-                        "noise_range": [constant_noise]*2,
-                        "noise_slope_range": [constant_noise_slope]*2,
-                        "tag": "mi_sweep_kl05_learning",}
+            constant_alpha, constant_noise, constant_noise_slope, seed = combination
+            run_name = "{}_sweep_kl05_alpha_{}_noise_{}_slope_{}_{}".format(
+                "mi" if not args.baseline else "baseline",
+                constant_alpha,
+                constant_noise,
+                constant_noise_slope,
+                seed,
+            )
+            kwargs = {
+                "alpha_range": [constant_alpha]*2,
+                "noise_range": [constant_noise]*2,
+                "noise_slope_range": [constant_noise_slope]*2,
+                "tag": "mi_sweep_kl05",
+                "run_name": run_name,
+                "seed": seed,
+            }
+            if args.baseline:
+                kwargs["encoder"] = {"beta_1": 0.}
             main(kwargs)
-    elif args.baseline:
-        kwargs = {
-            "seed": 789,
-            "encoder": {
-                "beta_1": 0.,
-                "kl_approx_method": "mse"},
-            "tag": "baseline_drift",
-        }
-        main(kwargs)
     else:
         main()
