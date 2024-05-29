@@ -53,10 +53,12 @@ def validate_data(data, logger):
     sum_rwd = data["rwd"].sum()
     mean_rwd = data["rwd"].mean()
     std_rwd = data["rwd"].std()
+    n_episodes = data["done"].sum()
     logging.info(f"encoder reward mean: {mean_rwd:.4f}, std: {std_rwd:.4f}, mae: {mae:.4f}")
     if logger is not None:
         logger.log_metrics({"encoder_reward": mean_rwd,
                             "encoder_reward_sum": sum_rwd,
+                            "n_episodes": n_episodes,
                             "encoder_mae": mae})
 
     return mean_rwd, std_rwd, mae
