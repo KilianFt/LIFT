@@ -90,8 +90,8 @@ class EncoderConfig(BaseModel):
     beta_2: float = .5 # kl weight
     kl_approx_method: str = "logp" # choices=[logp, abs, mse]
     mi_approx_method: str = "nce" # choices=[nce, tuba]
-    hidden_size: int = 512
-    n_layers: int = 6
+    hidden_size: int = 256
+    n_layers: int = 2
     dropout: float = 0.
 
 
@@ -156,8 +156,8 @@ class BaseConfig(BaseModel):
     noise_slope_range: list | None = [0., 1.] # action dependent noise
     alpha_range: list | None = [1., 3.] # ratio multiplied to teacher std
     alpha_apply_range: list | None = [0., 3.] # goal dist range to apply alpha scaling
-    noise_drift: list | None = [-0.1, 0.0] # [offset, std]
-    alpha_drift: list | None = [-0.1, 0.0] # [-0.1, 0.2] # [offset, std]
+    noise_drift: list | None = None#[-0.1, 0.0] # [offset, std]
+    alpha_drift: list | None = None#[-0.1, 0.0] # [-0.1, 0.2] # [offset, std]
 
     seed: int = 100
     num_workers: int = 7

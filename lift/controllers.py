@@ -116,7 +116,7 @@ class BCTrainer(L.LightningModule):
             out_min=self.act_min,
             out_max=self.act_max,
         )
-        self.target_var = 0.2
+        self.target_var = 0.5
         self.beta = 0.5
 
     # def compute_loss(self, dist, a):

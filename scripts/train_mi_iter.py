@@ -50,11 +50,14 @@ def maybe_rollout(env: EMGEnv, policy: EMGAgent, config: BaseConfig, use_saved=T
 def validate_data(data, logger):
     assert data["info"]["teacher_action"].shape == data["act"].shape
     mae = np.abs(data["info"]["teacher_action"] - data["act"]).mean()
+    sum_rwd = data["rwd"].sum()
     mean_rwd = data["rwd"].mean()
     std_rwd = data["rwd"].std()
     logging.info(f"encoder reward mean: {mean_rwd:.4f}, std: {std_rwd:.4f}, mae: {mae:.4f}")
     if logger is not None:
-        logger.log_metrics({"encoder_reward": mean_rwd, "encoder_mae": mae})
+        logger.log_metrics({"encoder_reward": mean_rwd,
+                            "encoder_reward_sum": sum_rwd,
+                            "encoder_mae": mae})
 
     return mean_rwd, std_rwd, mae
 
@@ -180,6 +183,7 @@ def main(kwargs=None):
 
         # we might want to aggregate data from multiple sessions
         dataset = dataset if config.mi.aggregate_data else data
+        print("dataset size", len(dataset["obs"]["observation"]))
         train(dataset, trainer, logger, config)
 
         # TODO: beta annealing
@@ -223,7 +227,7 @@ if __name__ == "__main__":
     
     if args.sweep:
         import itertools
-        seeds = [100, 42, 123, 789] # 456
+        seeds = [100, 42, 123, 789]
         alphas = [1.0, 3.0]
 
         teacher_noises = np.linspace(0.001, .9, 5)
