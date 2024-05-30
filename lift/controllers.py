@@ -116,7 +116,7 @@ class BCTrainer(L.LightningModule):
             out_min=self.act_min,
             out_max=self.act_max,
         )
-        self.target_var = 0.5
+        self.target_std = config.pretrain.target_std
         self.beta = 0.5
 
     # def compute_loss(self, dist, a):
@@ -124,21 +124,26 @@ class BCTrainer(L.LightningModule):
     #     return loss
     
     def compute_loss(self, dist, a):
-        mae = torch.abs(dist.mode - a).mean()
-        var = torch.pow(dist.scale, 2)
-        var_loss = torch.abs(var - self.target_var).mean()
-        loss = mae + self.beta * var_loss
-        return loss, mae
+        # mae = torch.abs(dist.mode - a).mean()
+        # std_loss = torch.abs(dist.scale - self.target_std).mean()
+        mse = torch.pow(dist.mode - a, 2).mean()
+        std_loss = torch.pow(dist.scale - self.target_std, 2).mean()
+        loss = mse + self.beta * std_loss
+        return loss, mse, std_loss
     
     def training_step(self, batch, _):
         x = batch["emg_obs"]
         a = batch["act"]
 
         dist = self.encoder.get_dist(x)
-        loss, mae = self.compute_loss(dist, a)
+        loss, _, _ = self.compute_loss(dist, a)
+        
+        mae = torch.abs(dist.mode - a).mean()
+        std = dist.scale.mean()
         
         self.log("train_loss", loss.data.item())
         self.log("train_mae", mae.data.item())
+        self.log("train_std", std.data.item())
         return loss
 
     def validation_step(self, batch, _):
@@ -146,11 +151,14 @@ class BCTrainer(L.LightningModule):
         a = batch["act"]
         
         dist = self.encoder.get_dist(x)
-        loss, mae = self.compute_loss(dist, a)
-        # mae = torch.abs(dist.mode - a).mean()
+        loss, _, _ = self.compute_loss(dist, a)
+        
+        mae = torch.abs(dist.mode - a).mean()
+        std = dist.scale.mean()
 
         self.log("val_loss", loss.data.item())
         self.log("val_mae", mae.data.item(), prog_bar=True)
+        self.log("val_std", std.data.item())
         return loss
 
     def configure_optimizers(self):
@@ -186,10 +194,14 @@ class MITrainer(L.LightningModule):
             out_min=self.act_min,
             out_max=self.act_max,
         )
+
+        """TODO: set critic network size in config"""
+        # critic_hidden_dims = [config.encoder.hidden_size for _ in range(3)]
+        critic_hidden_dims = hidden_dims
         self.critic_x = MLP(
             self.x_dim, 
             h_dim, 
-            hidden_dims, 
+            critic_hidden_dims, 
             dropout=0., 
             activation=nn.SiLU, 
             output_activation=None,
@@ -197,7 +209,7 @@ class MITrainer(L.LightningModule):
         self.critic_z = MLP(
             self.a_dim, 
             h_dim, 
-            hidden_dims, 
+            critic_hidden_dims, 
             dropout=0., 
             activation=nn.SiLU, 
             output_activation=None,
@@ -221,6 +233,9 @@ class MITrainer(L.LightningModule):
         p = torch.softmax(f, dim=-1)
         labels = torch.eye(len(h_x)).to(x.device)
         loss = cross_entropy(labels, p)
+        accuracy = torch.sum(p.argmax(-1) == labels.argmax(-1)) / len(labels)
+
+        print("accuracy", accuracy)
         return loss.mean()
     
     def compute_tuba_loss(self, x, z):
@@ -287,11 +302,29 @@ class MITrainer(L.LightningModule):
         z_dist = self.encoder.get_dist(x)
         loss, mi_loss, kl_loss = self.compute_loss(x, o, z_dist)
         mae = torch.abs(z_dist.mode - a).mean()
+
+        with torch.no_grad():
+            teacher_inputs = TensorDict({
+                "observation": o,
+                "action": a,
+            })
+            teacher_dist = self.teacher.get_dist(teacher_inputs)
+            teacher_logp_a = teacher_dist.log_prob(a).mean()
+            teacher_logp_z = teacher_dist.log_prob(z_dist.mode).mean()
+            teacher_mae_a = torch.abs(teacher_dist.mode - a).mean()
+            teacher_mae_z = torch.abs(teacher_dist.mode - z_dist.mode).mean()
+            encoder_logp_a = z_dist.log_prob(a).mean()
         
         self.log("train_loss", loss.data.item())
         self.log("train_mi_loss", mi_loss.data.item())
         self.log("train_kl_loss", kl_loss.data.item())
         self.log("train_mae", mae.data.item())
+
+        self.log("train_teacher_logp_a", teacher_logp_a.data.item())
+        self.log("train_teacher_logp_z", teacher_logp_z.data.item())
+        self.log("train_teacher_mae_a", teacher_mae_a.data.item())
+        self.log("train_teacher_mae_z", teacher_mae_z.data.item())
+        self.log("train_encoder_logp_a", encoder_logp_a.data.item())
         return loss
 
     def validation_step(self, batch, _):
@@ -305,14 +338,35 @@ class MITrainer(L.LightningModule):
 
         mae = torch.abs(z_dist.mode - a).mean()
 
+        with torch.no_grad():
+            teacher_inputs = TensorDict({
+                "observation": o,
+                "action": a,
+            })
+            teacher_dist = self.teacher.get_dist(teacher_inputs)
+            teacher_logp_a = teacher_dist.log_prob(a).mean()
+            teacher_logp_z = teacher_dist.log_prob(z_dist.mode).mean()
+            teacher_mae_a = torch.abs(teacher_dist.mode - a).mean()
+            teacher_mae_z = torch.abs(teacher_dist.mode - z_dist.mode).mean()
+            encoder_logp_a = z_dist.log_prob(a).mean()
+
         self.log("val_loss", loss.data.item())
         self.log("val_mi_loss", mi_loss.data.item())
         self.log("val_kl_loss", kl_loss.data.item())
         self.log("val_mae", mae.data.item())
+
+        self.log("val_teacher_logp_a", teacher_logp_a.data.item())
+        self.log("val_teacher_logp_z", teacher_logp_z.data.item())
+        self.log("val_teacher_mae_a", teacher_mae_a.data.item())
+        self.log("val_teacher_mae_z", teacher_mae_z.data.item())
+        self.log("val_encoder_logp_a", encoder_logp_a.data.item())
         return loss
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
+        if self.optimizers() == []:
+            optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
+        else:
+            optimizer = self.optimizers()
         return optimizer
 
 

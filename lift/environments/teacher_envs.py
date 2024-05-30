@@ -237,7 +237,7 @@ class ConditionedTeacher:
         act_dist = self.get_action_dist(obs)
         
         if sample_mean:
-            act = act_dist.loc
+            act = act_dist.mode
         else:
             act = act_dist.sample()
         return act.numpy()

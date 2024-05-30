@@ -87,11 +87,11 @@ class EncoderConfig(BaseModel):
     h_dim: int = 128 # mi critic output feature dim
     tau: float = 0.5
     beta_1: float = 1.0 # mi weight, use 0.5 for mse
-    beta_2: float = .5 # kl weight
+    beta_2: float = .1 # kl weight
     kl_approx_method: str = "logp" # choices=[logp, abs, mse]
-    mi_approx_method: str = "nce" # choices=[nce, tuba]
-    hidden_size: int = 256
-    n_layers: int = 2
+    mi_approx_method: str = "tuba" # choices=[nce, tuba]
+    hidden_size: int = 512
+    n_layers: int = 3
     dropout: float = 0.
 
 
@@ -106,6 +106,7 @@ class SimulatorConfig(BaseModel):
 
 
 class PretrainConfig(BaseModel):
+    target_std: float = 0.5
     epochs: int = 50
     num_augmentation: int = 10_000
     augmentation_distribution: str = "uniform" # choices=["uniform", "normal"]
@@ -119,7 +120,7 @@ class MIConfig(BaseModel):
     batch_size: int = 256
     epochs: int = 50
     max_steps: int = 500
-    lr: float = 1e-4
+    lr: float = 3.0e-4
     n_steps_rollout: int = 1_000
     random_pertube_prob: float = 0.0
     action_noise: float = 0.0

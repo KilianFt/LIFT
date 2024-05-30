@@ -35,7 +35,8 @@ def maybe_rollout(env: EMGEnv, policy: EMGAgent, config: BaseConfig, use_saved=T
         data = rollout(
             env,
             policy,
-            n_steps=config.mi.n_steps_rollout,
+            # n_steps=config.mi.n_steps_rollout,
+            n_steps=3000,
             sample_mean=True,
             terminate_on_done=False,
             reset_on_done=True,
@@ -69,7 +70,7 @@ def validate(env, teacher, sim, encoder, logger):
     data = rollout(
         emg_env, 
         agent, 
-        n_steps=1000, 
+        n_steps=3000, 
         sample_mean=True,
         terminate_on_done=False,
         reset_on_done=True,
@@ -131,7 +132,7 @@ def main(kwargs=None):
         tags = ['align_teacher']
         if kwargs is not None:
             tags.append(kwargs['tag'])
-        _ = wandb.init(project='lift', name=config.run_name, tags=tags)
+        _ = wandb.init(project='lift_test', name=config.run_name, tags=tags)
         # config = BaseConfig(**wandb.config) this will overwrite the noise_range
         logger = WandbLogger()
         wandb.config.update(config.model_dump())
@@ -187,6 +188,11 @@ def main(kwargs=None):
         dataset = dataset if config.mi.aggregate_data else data
         print("dataset size", len(dataset["obs"]["observation"]))
         train(dataset, trainer, logger, config)
+        # if i == 1:
+        #     import pdb
+        #     pdb.set_trace()
+
+        # validate(env, user, sim, trainer.encoder, logger)
 
         # TODO: beta annealing
 
@@ -229,10 +235,14 @@ if __name__ == "__main__":
     
     if args.sweep:
         import itertools
-        seeds = [100, 42, 123, 789]
-        alphas = [1.0, 3.0]
+        # seeds = [100, 42, 123, 789]
+        seeds = [100]
+        # alphas = [1.0, 3.0]
+        alphas = [1.0]
 
-        teacher_noises = np.linspace(0.001, .9, 5)
+        # teacher_noises = np.linspace(0.001, .9, 5)
+        # teacher_noise_slopes = np.linspace(0.001, .9, 5)
+        teacher_noises = np.linspace(0.9, .9, 5)
         teacher_noise_slopes = np.linspace(0.001, .9, 5)
         combinations = itertools.product(alphas, teacher_noises, teacher_noise_slopes, seeds)
 
@@ -256,5 +266,6 @@ if __name__ == "__main__":
             if args.baseline:
                 kwargs["encoder"] = {"beta_1": 0.}
             main(kwargs)
+            break
     else:
         main()

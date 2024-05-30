@@ -40,7 +40,8 @@ class EMGEnv(gym.Wrapper):
             )
 
     def _obs_to_emg(self, obs):
-        teacher_action = self.teacher.sample_action(obs).reshape(1, -1)
+        """DEBUG: set sample mean to verify"""
+        teacher_action = self.teacher.sample_action(obs, sample_mean=True).reshape(1, -1)
         emg = self.emg_simulator(teacher_action)[0].numpy() # last action entry not used in fetch env
         return emg, teacher_action
     
