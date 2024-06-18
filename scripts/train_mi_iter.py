@@ -145,7 +145,7 @@ def main(kwargs=None):
         cat_keys=config.teacher.env_cat_keys,
     )
     sim = SimulatorFactory.create_class(
-        (config.mad_data_path / "Female0"/ "training0").as_posix(),
+        (config.mad_data_path / config.target_person / "training0").as_posix(),
         config,
         return_features=True,
     )

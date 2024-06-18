@@ -107,7 +107,7 @@ def main(kwargs):
         logger = None
     
     teacher = load_teacher(config)
-    data_path = (config.mad_data_path / "Female0"/ "training0").as_posix()
+    data_path = (config.mad_data_path / config.target_person / "training0").as_posix()
     sim = SimulatorFactory.create_class(
         data_path,
         config,

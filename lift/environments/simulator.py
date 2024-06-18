@@ -9,6 +9,8 @@ import torch.distributions as torch_dist
 from tensordict import TensorDict
 
 from lift.datasets import (
+    load_all_mad_datasets,
+    WeightedInterpolator,
     load_mad_person_trial,
     compute_features,
     interpolate_emg,
@@ -63,9 +65,47 @@ class SimulatorFactory:
     @staticmethod
     def create_class(data_path, config, return_features=False):
         if config.simulator.parametric == False:
-            return NonParametricSimulator(data_path, config, return_features)
+            if config.simulator.interpolation == "weighted":
+                return NonParametricWeightedSimulator(data_path, config, return_features)
+            elif config.simulator.interpolation == "random":
+                return NonParametricSimulator(data_path, config, return_features)
         else:
+            if not config.simulator.interpolation == "random":
+                raise NotImplementedError("Only random interpolation implemented \
+                                          for non-parametric simulator")
             return ParametricSimulator(data_path, config, return_features)
+
+
+class NonParametricWeightedSimulator(Simulator):
+    def __init__(self, data_path, config, return_features=True) -> None:
+        super().__init__(data_path, config, return_features)
+        if return_features == False:
+            raise NotImplementedError("Simulator only works with features")
+
+        # # load emg data of one person
+        p = data_path.split('/')[-2]
+        people_list = [f"Female{i}" for i in range(10)] + [f"Male{i}" for i in range(16)]
+        other_list = [o_p for o_p in people_list if not o_p == p]
+        person_windows, person_labels = load_all_mad_datasets(
+            config.mad_base_path.as_posix(),
+            num_channels=config.n_channels,
+            emg_range=config.emg_range,
+            window_size=config.window_size,
+            window_overlap=config.window_overlap,
+            desired_labels=config.desired_mad_labels,
+            skip_person=other_list,
+            return_tensors=True,
+            verbose=False,
+        )
+        person_features = compute_features(person_windows, feature_list = ['MAV'])
+        person_actions = mad_labels_to_actions(
+            person_labels, recording_strength=config.simulator.recording_strength,
+        )
+        self.interpolator = WeightedInterpolator(person_features, person_actions, k=config.simulator.k)
+
+    def __call__(self, actions):
+        features = self.interpolator(actions)
+        return features
 
 
 class NonParametricSimulator(Simulator):

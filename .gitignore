@@ -2,12 +2,12 @@
 *.pkl
 lightning_logs/
 wandb/
-models/
 figures/
 datasets/
 tmp/
 test.ipynb
 .DS_STORE
+.idea/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

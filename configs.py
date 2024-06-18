@@ -91,27 +91,30 @@ class EncoderConfig(BaseModel):
     kl_approx_method: str = "logp" # choices=[logp, abs, mse]
     mi_approx_method: str = "tuba" # choices=[nce, tuba]
     hidden_size: int = 512
-    n_layers: int = 3
-    dropout: float = 0.
+    n_layers: int = 5
+    dropout: float = 0.1
 
 
 class SimulatorConfig(BaseModel):
     parametric: bool = False
+    interpolation: str = "weighted" # choices=["weighted", "random"]
     reduction: str = "abs" # choices=["mean", "abs"] mean: /act_dict; abs: / actions.abs().sum(dim=-1)
     bias_noise: float = 0.005
     limits_noise: float = 0.01
     base_noise: float = 0.005
     n_bursts: int = 1
     recording_strength: float = 0.8
+    k: int | None = None # number of samples considered in weighted simulator
 
 
 class PretrainConfig(BaseModel):
     target_std: float = 0.5
-    epochs: int = 50
-    num_augmentation: int = 10_000
+    epochs: int = 100
+    num_augmentation: int = 50_000
     augmentation_distribution: str = "uniform" # choices=["uniform", "normal"]
+    train_subset: str = "combined" # choices=["interpolation", "combined"] MAD only is when num_aug is 0
     train_ratio: float = 0.8
-    batch_size: int = 128
+    batch_size: int = 512
     lr: float = 3.0e-4
 
 
@@ -138,6 +141,7 @@ class BaseConfig(BaseModel):
     models_path: PosixPath = ROOT_PATH / "models"
     rollout_data_path: PosixPath = ROOT_PATH / "datasets" / "rollouts"
     results_path: PosixPath = ROOT_PATH / "results"
+    target_person: str = "Female0"
     
     # wandb
     use_wandb: bool = True
@@ -164,7 +168,7 @@ class BaseConfig(BaseModel):
     num_workers: int = 7
     teacher_train_timesteps: int = 150_000
     action_size: int = 3 # could be read from env
-    feature_size: int = 32 # could be read from env
+    feature_size: int = 8#32 # could be read from env
 
     gradient_clip_val: float = 2.
     checkpoint_frequency: int = 1

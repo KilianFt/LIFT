@@ -1,5 +1,5 @@
 import os
-import re
+import logging
 import subprocess
 import time
 from pathlib import Path
@@ -9,7 +9,6 @@ import torch
 from tensordict import TensorDict
 from torch.utils.data import Dataset, DataLoader, random_split
 from torch.nn.utils.rnn import pad_sequence
-from libemg.utils import get_windows
 from libemg.feature_extractor import FeatureExtractor
 
 class EMGSLDataset(Dataset):
@@ -49,6 +48,38 @@ class EMGSeqDataset(Dataset):
         out = torch.from_numpy(out).to(torch.float32)
         return out
 
+class WeightedInterpolator:
+    def __init__(self, features, actions, k=None):
+        self.features = features
+        self.actions = actions
+        self.epsilon = 1e-5
+        self.k = k
+
+    def __call__(self, new_actions):
+        if not isinstance(new_actions, torch.Tensor):
+            new_actions = torch.tensor(new_actions, dtype=torch.float32)
+        # Step 1: Calculate distances for each new action
+        # This results in a (batch_size, num_samples) distance matrix
+        distances = torch.norm(self.actions - new_actions[:, None, :], dim=2)
+
+        # Step 2: Compute interpolation weights
+        weights = 1 / (distances + self.epsilon)
+        weights /= weights.sum(axis=1, keepdims=True)
+
+        # Step 4: select k elements of the weights, set rest to 0
+        if self.k is not None:
+            indices = torch.multinomial(weights, self.k, replacement=False)
+            mask = torch.zeros_like(weights)
+            mask.scatter_(1, indices, 1)
+
+            sampled_weights = weights * mask
+            sampled_weights /= sampled_weights.sum(dim=1, keepdim=True)
+
+            weights = sampled_weights
+
+        # Step 3: Interpolate features
+        interpolated_features_batch = torch.tensordot(weights, self.features, dims=([1],[0]))
+        return interpolated_features_batch
 
 def format_seq_data(data: dict) -> list[dict]:
     """Format rollout data into sequences"""
@@ -238,6 +269,7 @@ def load_mad_dataset(
     window_overlap: int = 50, 
     desired_labels: list = None,
     skip_person: list = None,
+    verbose: bool = True,
 ):
     """Load all person trials in mad dataset in either pretrain or eval path
     
@@ -254,8 +286,9 @@ def load_mad_dataset(
         trial_dataset = {'emg': [], 'labels': []}
         for person_dir in person_folders:
             # skip loading data for a certain person
-            if skip_person is not None and person_dir == skip_person:
-                print(f'skipping {skip_person}')
+            if skip_person is not None and person_dir in skip_person:
+                if verbose:
+                    logging.info(f'Skipping {skip_person}')
                 continue
             
             trial_path = data_path + person_dir + '/' + trial
@@ -277,8 +310,9 @@ def load_mad_dataset(
             trial_dataset['emg'].append(np.concatenate(windows))
             trial_dataset['labels'].append(np.concatenate(labels))
         
-        trial_dataset['emg'] = np.concatenate(trial_dataset['emg'])
-        trial_dataset['labels'] = np.concatenate(trial_dataset['labels']).astype(int)
+        if len(trial_dataset['emg']) > 0:
+            trial_dataset['emg'] = np.concatenate(trial_dataset['emg'])
+            trial_dataset['labels'] = np.concatenate(trial_dataset['labels']).astype(int)
         dataset[trial] = trial_dataset
     return dataset
 
@@ -290,7 +324,8 @@ def load_all_mad_datasets(
     window_overlap: int = 50, 
     desired_labels: list = None,
     skip_person: list = None,
-    return_tensors: bool = False, 
+    return_tensors: bool = False,
+    verbose: bool = True,
 ):
     """Load all mad pretain and eval data
     
@@ -310,6 +345,7 @@ def load_all_mad_datasets(
         window_overlap=window_overlap,
         desired_labels=desired_labels,
         skip_person=skip_person,
+        verbose=verbose,
     )
     eval_dataset = load_mad_dataset(
         eval_path, 
@@ -319,23 +355,43 @@ def load_all_mad_datasets(
         window_overlap=window_overlap,
         desired_labels=desired_labels,
         skip_person=skip_person,
+        verbose=verbose,
     )
 
-    mad_windows = np.concatenate([
-        train_dataset['training0']['emg'],
-        eval_dataset['training0']['emg'],
-        eval_dataset['Test0']['emg'],
-        eval_dataset['Test1']['emg'],
-    ])
+    if len(train_dataset['training0']['emg']) < 1:
+        mad_windows = np.concatenate([
+            eval_dataset['training0']['emg'],
+            eval_dataset['Test0']['emg'],
+            eval_dataset['Test1']['emg'],
+        ])
+        mad_labels = np.concatenate([
+            eval_dataset['training0']['labels'],
+            eval_dataset['Test0']['labels'],
+            eval_dataset['Test1']['labels'],
+        ])
+    elif len(eval_dataset['training0']['emg']) < 1:
+        mad_windows = np.concatenate([
+            train_dataset['training0']['emg'],
+        ])
+        mad_labels = np.concatenate([
+            train_dataset['training0']['labels'],
+        ])
+    else:
+        mad_windows = np.concatenate([
+            train_dataset['training0']['emg'],
+            eval_dataset['training0']['emg'],
+            eval_dataset['Test0']['emg'],
+            eval_dataset['Test1']['emg'],
+        ])
+        mad_labels = np.concatenate([
+            train_dataset['training0']['labels'],
+            eval_dataset['training0']['labels'],
+            eval_dataset['Test0']['labels'],
+            eval_dataset['Test1']['labels'],
+        ])
 
-    mad_labels = np.concatenate([
-        train_dataset['training0']['labels'],
-        eval_dataset['training0']['labels'],
-        eval_dataset['Test0']['labels'],
-        eval_dataset['Test1']['labels'],
-    ])
-
-    print("MAD dataset loaded")
+    if verbose:
+        logging.info("MAD dataset loaded")
     if return_tensors:
         mad_windows = torch.tensor(mad_windows, dtype=torch.float32)
         mad_labels = torch.tensor(mad_labels)
@@ -460,6 +516,75 @@ def mad_augmentation(
     sample_emg = interpolate_emg(base_emg, base_actions, sample_actions, reduction)
     
     return sample_emg, sample_actions
+
+def weighted_augmentation(mad_windows, mad_actions, config):
+    mad_features = compute_features(mad_windows, feature_list = ['MAV'])
+    interpolator = WeightedInterpolator(mad_features, mad_actions,
+                                        k=config.simulator.k)
+
+    if config.pretrain.augmentation_distribution == 'uniform':
+        sample_actions = torch.rand(config.pretrain.num_augmentation,
+                                    config.action_size) * 2 - 1
+    elif config.pretrain.augmentation_distribution == 'normal':
+        sample_actions = torch.normal(0, .5, (config.pretrain.num_augmentation,
+                                                config.action_size)).clip(-1, 1)
+
+    sample_features = interpolator(sample_actions)
+    return sample_features, sample_actions
+
+def weighted_per_person_augmentation(config):
+    mad_features = None
+    mad_actions = None
+    sample_features = None
+    sample_actions = None
+
+    people_list = [f"Female{i}" for i in range(10)] + [f"Male{i}" for i in range(16)]
+    people_list = [p for p in people_list if not p == config.target_person]
+
+    aug_per_person = config.pretrain.num_augmentation // len(people_list)
+
+    for p in people_list:
+        other_list = [o_p for o_p in people_list if not o_p == p]
+        person_windows, person_labels = load_all_mad_datasets(
+            config.mad_base_path.as_posix(),
+            num_channels=config.n_channels,
+            emg_range=config.emg_range,
+            window_size=config.window_size,
+            window_overlap=config.window_overlap,
+            desired_labels=config.desired_mad_labels,
+            skip_person=other_list,
+            return_tensors=True,
+            verbose=False,
+        )
+
+        person_features = compute_features(person_windows, feature_list = ['MAV'])
+        person_actions = mad_labels_to_actions(
+                person_labels, recording_strength=config.simulator.recording_strength,
+            )
+
+        p_interpolator = WeightedInterpolator(person_features, person_actions,
+                                              k=config.simulator.k)
+
+        if config.pretrain.augmentation_distribution == 'uniform':
+            p_sample_action = torch.rand(aug_per_person,
+                                        config.action_size) * 2 - 1
+        elif config.pretrain.augmentation_distribution == 'normal':
+            p_sample_action = torch.normal(0, .5, (aug_per_person,
+                                                  config.action_size)).clip(-1, 1)
+
+        p_sample_features = p_interpolator(p_sample_action)
+
+        if mad_features is None:
+            mad_features = person_features
+            mad_actions = person_actions
+            sample_features = p_sample_features
+            sample_actions = p_sample_action
+        else:
+            mad_features = torch.cat((mad_features, person_features), dim=0)
+            mad_actions = torch.cat((mad_actions, person_actions), dim=0)
+            sample_features = torch.cat((sample_features, p_sample_features), dim=0)
+            sample_actions = torch.cat((sample_actions, p_sample_action), dim=0)
+        return sample_features, sample_actions, mad_features, mad_actions
 
 if __name__ == "__main__":
     from configs import BaseConfig

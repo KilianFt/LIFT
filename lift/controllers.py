@@ -117,7 +117,7 @@ class BCTrainer(L.LightningModule):
             out_max=self.act_max,
         )
         self.target_std = config.pretrain.target_std
-        self.beta = 0.5
+        self.beta = 0.1
 
     # def compute_loss(self, dist, a):
     #     loss = -dist.log_prob(a).mean() / self.a_dim
@@ -126,10 +126,10 @@ class BCTrainer(L.LightningModule):
     def compute_loss(self, dist, a):
         # mae = torch.abs(dist.mode - a).mean()
         # std_loss = torch.abs(dist.scale - self.target_std).mean()
-        mse = torch.pow(dist.mode - a, 2).mean()
+        mode_loss = nn.SmoothL1Loss().forward(dist.mode, a)
         std_loss = torch.pow(dist.scale - self.target_std, 2).mean()
-        loss = mse + self.beta * std_loss
-        return loss, mse, std_loss
+        loss = mode_loss + self.beta * std_loss
+        return loss, mode_loss, std_loss
     
     def training_step(self, batch, _):
         x = batch["emg_obs"]
