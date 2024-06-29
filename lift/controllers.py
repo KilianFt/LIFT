@@ -5,12 +5,13 @@ import torch.nn.functional as F
 import torch.distributions as torch_dist
 from tensordict import TensorDict
 from torchrl.modules.distributions import TanhNormal
+from torchrl.modules import ProbabilisticActor
 
 from configs import BaseConfig
 from lift.neural_nets import MLP
 from lift.environments.gym_envs import NpGymEnv
 from lift.rl.sac import SAC
-from lift.utils import cross_entropy
+from lift.utils import cross_entropy, normalize
 
 class CategoricalEncoder(nn.Module):
     """Output a categorical distribution"""
@@ -168,20 +169,22 @@ class BCTrainer(L.LightningModule):
 
 class MITrainer(L.LightningModule):
     """Mutual information trainer"""
-    def __init__(self, config: BaseConfig, env: NpGymEnv, teacher: SAC):
+    def __init__(self, config: BaseConfig, env: NpGymEnv, teacher: SAC | None = None, supervise: bool = False):
         super().__init__()
+        self.supervise = supervise
+        self.num_neg_samples = config.mi.num_neg_samples
         self.lr = config.mi.lr
-        self.beta_1 = config.encoder.beta_1
-        self.beta_2 = config.encoder.beta_2
-        self.kl_approx_method = config.encoder.kl_approx_method
-        self.mi_approx_method = config.encoder.mi_approx_method
+        self.beta_1 = config.mi.beta_1
+        self.beta_2 = config.mi.beta_2
+        self.beta_3 = config.mi.beta_3
+        self.kl_approx_method = config.mi.kl_approx_method
+        self.mi_approx_method = config.mi.mi_approx_method
 
         assert self.kl_approx_method in ["logp", "abs", "mse"]
         assert self.mi_approx_method in ["nce", "tuba"]
 
         self.x_dim = config.feature_size
         self.a_dim = config.action_size
-        h_dim = config.encoder.h_dim
         hidden_dims = [config.encoder.hidden_size for _ in range(config.encoder.n_layers)]
         self.act_max = torch.from_numpy(env.action_space.high[..., :-1]).to(torch.float32)
         self.act_min = torch.from_numpy(env.action_space.low[..., :-1]).to(torch.float32)
@@ -195,86 +198,66 @@ class MITrainer(L.LightningModule):
             out_max=self.act_max,
         )
 
-        """TODO: set critic network size in config"""
-        # critic_hidden_dims = [config.encoder.hidden_size for _ in range(3)]
-        critic_hidden_dims = hidden_dims
-        self.critic_x = MLP(
-            self.x_dim, 
-            h_dim, 
-            critic_hidden_dims, 
+        self.critic = MLP(
+            self.x_dim + self.a_dim, 
+            1, 
+            hidden_dims, 
             dropout=0., 
             activation=nn.SiLU, 
             output_activation=None,
         )
-        self.critic_z = MLP(
-            self.a_dim, 
-            h_dim, 
-            critic_hidden_dims, 
-            dropout=0., 
-            activation=nn.SiLU, 
-            output_activation=None,
-        ) 
-        if self.mi_approx_method == "tuba":
-            self.baseline = MLP(
-                self.a_dim, 
-                1, 
-                hidden_dims, 
-                dropout=0., 
-                activation=nn.SiLU, 
-                output_activation=None,
-            )
-        self.teacher = teacher.model.policy
-    
-    def compute_infonce_loss(self, x, z):
-        h_x = self.critic_x(x)
-        h_z = self.critic_z(z)
 
-        f = torch.einsum("ih, jh -> ij", h_z, h_x)
-        p = torch.softmax(f, dim=-1)
-        labels = torch.eye(len(h_x)).to(x.device)
-        loss = cross_entropy(labels, p)
-        accuracy = torch.sum(p.argmax(-1) == labels.argmax(-1)) / len(labels)
-
-        print("accuracy", accuracy)
-        return loss.mean()
-    
-    def compute_tuba_loss(self, x, z):
-        h_x = self.critic_x(x)
-        h_z = self.critic_z(z)
-        b_z = self.baseline(z)
-
-        idx_neg = torch.randperm(len(x))
-        h_x_neg = h_x[idx_neg]
-
-        f_pos = torch.sum(h_x * h_z, dim=-1, keepdim=True)
-        f_neg = torch.sum(h_x_neg * h_z, dim=-1, keepdim=True)
-        loss = f_pos - torch.exp(f_neg - b_z) - b_z + 1
-        return -loss.mean()
+        if teacher is not None:
+            self.teacher = teacher.model.policy
+        else:
+            self.teacher = None
     
     def compute_mi_loss(self, x, z):
-        if self.mi_approx_method == "nce":
-            loss = self.compute_infonce_loss(x, z)
-        elif self.mi_approx_method == "tuba":
-            loss = self.compute_tuba_loss(x, z)
-        else:
-            raise ValueError("mi approximation method much be one of [nce, tuba]")
-        return loss
+        """Compute infonce loss"""
+        f = self.critic(torch.cat([x, z], dim=-1))
+
+        sample_idx_neg = torch.randint(len(x), size=(self.num_neg_samples,))
+        x_neg = x[sample_idx_neg]
+        x_neg_ = x_neg.unsqueeze(0).repeat_interleave(len(x), dim=0)
+        z_ = z.unsqueeze(1).repeat_interleave(len(x_neg), dim=1)
+        f_neg_ = self.critic(torch.cat([x_neg_, z_], dim=-1))
+        f_neg_ = torch.cat([f.unsqueeze(-2), f_neg_], dim=-2)
+
+        labels = torch.zeros_like(f_neg_.squeeze(-1)).to(x.device)
+        labels[:, 0] = 1
+        p = torch.softmax(f_neg_.squeeze(-1), dim=-1)
+        loss = cross_entropy(labels, p).mean()
+        
+        with torch.no_grad():
+            accuracy = torch.sum(p.argmax(-1) == labels.argmax(-1)) / len(labels)
+        
+        stats = {
+            "mi_loss": loss.data.cpu().item(),
+            "mi_accuracy": accuracy.data.cpu().mean().item(),
+        }
+        return loss, stats
     
     def compute_kl_loss(self, o, z, z_dist):
         """Compute sample based kl divergence from teacher"""
-        teacher_inputs = TensorDict({
-            "observation": o,
-            "action": z,
-        })
+        if isinstance(self.teacher, ProbabilisticActor):
+            teacher_inputs = TensorDict({
+                "observation": o,
+                "action": z,
+            })
+            teacher_dist = self.teacher.get_dist(teacher_inputs)
+            log_prior = teacher_dist.log_prob(z)
+        else:
+            teacher_dist = torch_dist.Normal(
+                torch.zeros(1, device=z.device), 
+                torch.ones(1, device=z.device),
+            )
+            log_prior = teacher_dist.log_prob(z).sum(-1)
+
+        log_post = z_dist.log_prob(z)
 
         if self.kl_approx_method == "logp":
-            log_prior = self.teacher.log_prob(teacher_inputs)
-            ent = -z_dist.log_prob(z)
-            kl = -(log_prior + ent).mean()
+            kl = -(log_prior - log_post).mean()
         elif self.kl_approx_method == "abs":
-            # john schulman kl approximation
-            log_prior = self.teacher.log_prob(teacher_inputs)
-            log_post = z_dist.log_prob(z)
             kl = 0.5 * nn.SmoothL1Loss()(log_post, log_prior)
         elif self.kl_approx_method == "mse":
             with torch.no_grad():
@@ -284,82 +267,77 @@ class MITrainer(L.LightningModule):
         else:
             raise ValueError("kl approximation method much be one of [logp, abs, mse]")
         
-        return kl
+        with torch.no_grad():
+            mae_prior = torch.abs(teacher_dist.mode - z).mean()
+            std_post = z_dist.sample((30,)).std(0).mean()
+
+        stats = {
+            "log_prior": log_prior.data.cpu().mean().item(),
+            "log_post": log_post.data.cpu().mean().item(),
+            "post_std": std_post.data.cpu().item(),
+            "mae_prior": mae_prior.data.cpu().item(),
+        }
+        return kl, stats
     
-    def compute_loss(self, x, o, z_dist):
+    def compute_sl_loss(self, z, y):
+        """Compute supervised loss"""
+        if self.supervise and y is not None:
+            loss = torch.pow(z - y, 2).mean()
+        else:
+            loss = torch.zeros(1, device=z.device)
+
+        stats = {"sl_loss": loss.data.cpu().item()}
+        return loss, stats
+    
+    def compute_loss(self, x, o, a, z_dist):
         z = z_dist.rsample()
-        mi_loss = self.compute_mi_loss(x, z)
-        kl_loss = self.compute_kl_loss(o, z, z_dist)
-        loss = self.beta_1 * mi_loss + self.beta_2 * kl_loss
-        return loss, mi_loss, kl_loss
+        mi_loss, mi_stats = self.compute_mi_loss(x, z)
+        kl_loss, kl_stats = self.compute_kl_loss(o, z, z_dist)
+        sl_loss, sl_stats = self.compute_sl_loss(z, a)
+        loss = self.beta_1 * mi_loss + self.beta_2 * kl_loss + self.beta_3 * sl_loss
+
+        stats = {
+            "loss": loss.data.cpu().item(), 
+            **mi_stats, **kl_stats, **sl_stats,
+        }
+        return loss, stats
     
     def training_step(self, batch, _):
-        o = batch["obs"]
         x = batch["emg_obs"]
         a = batch["act"]
-        a = a[:,:self.a_dim].clone() # remove last element from y
+        if "obs" in batch.keys():
+            o = batch["obs"]
+        else:
+            o = None
 
         z_dist = self.encoder.get_dist(x)
-        loss, mi_loss, kl_loss = self.compute_loss(x, o, z_dist)
-        mae = torch.abs(z_dist.mode - a).mean()
-
-        with torch.no_grad():
-            teacher_inputs = TensorDict({
-                "observation": o,
-                "action": a,
-            })
-            teacher_dist = self.teacher.get_dist(teacher_inputs)
-            teacher_logp_a = teacher_dist.log_prob(a).mean()
-            teacher_logp_z = teacher_dist.log_prob(z_dist.mode).mean()
-            teacher_mae_a = torch.abs(teacher_dist.mode - a).mean()
-            teacher_mae_z = torch.abs(teacher_dist.mode - z_dist.mode).mean()
-            encoder_logp_a = z_dist.log_prob(a).mean()
+        loss, stats = self.compute_loss(x, o, a, z_dist)
         
-        self.log("train_loss", loss.data.item())
-        self.log("train_mi_loss", mi_loss.data.item())
-        self.log("train_kl_loss", kl_loss.data.item())
-        self.log("train_mae", mae.data.item())
+        with torch.no_grad():
+            mae = torch.abs(z_dist.mode - a).mean()
+            stats["act_mae"] = mae.data.cpu().item()
 
-        self.log("train_teacher_logp_a", teacher_logp_a.data.item())
-        self.log("train_teacher_logp_z", teacher_logp_z.data.item())
-        self.log("train_teacher_mae_a", teacher_mae_a.data.item())
-        self.log("train_teacher_mae_z", teacher_mae_z.data.item())
-        self.log("train_encoder_logp_a", encoder_logp_a.data.item())
+        for k, v in stats.items():
+            self.log(f"train/{k}", v)
         return loss
 
     def validation_step(self, batch, _):
-        o = batch["obs"]
         x = batch["emg_obs"]
         a = batch["act"]
-        a = a[:,:self.a_dim].clone() # remove last element from y
+        if "obs" in batch.keys():
+            o = batch["obs"]
+        else:
+            o = None
         
         z_dist = self.encoder.get_dist(x)
-        loss, mi_loss, kl_loss = self.compute_loss(x, o, z_dist)
-
-        mae = torch.abs(z_dist.mode - a).mean()
+        loss, stats = self.compute_loss(x, o, a, z_dist)
 
         with torch.no_grad():
-            teacher_inputs = TensorDict({
-                "observation": o,
-                "action": a,
-            })
-            teacher_dist = self.teacher.get_dist(teacher_inputs)
-            teacher_logp_a = teacher_dist.log_prob(a).mean()
-            teacher_logp_z = teacher_dist.log_prob(z_dist.mode).mean()
-            teacher_mae_a = torch.abs(teacher_dist.mode - a).mean()
-            teacher_mae_z = torch.abs(teacher_dist.mode - z_dist.mode).mean()
-            encoder_logp_a = z_dist.log_prob(a).mean()
+            mae = torch.abs(z_dist.mode - a).mean()
+            stats["act_mae"] = mae.data.cpu().item()
 
-        self.log("val_loss", loss.data.item())
-        self.log("val_mi_loss", mi_loss.data.item())
-        self.log("val_kl_loss", kl_loss.data.item())
-        self.log("val_mae", mae.data.item())
-
-        self.log("val_teacher_logp_a", teacher_logp_a.data.item())
-        self.log("val_teacher_logp_z", teacher_logp_z.data.item())
-        self.log("val_teacher_mae_a", teacher_mae_a.data.item())
-        self.log("val_teacher_mae_z", teacher_mae_z.data.item())
-        self.log("val_encoder_logp_a", encoder_logp_a.data.item())
+        for k, v in stats.items():
+            self.log(f"val/{k}", v)
         return loss
 
     def configure_optimizers(self):
@@ -401,13 +379,16 @@ class EMGPolicy(L.LightningModule):
 
 class EMGAgent:
     """Wrapper for encoder action selection"""
-    def __init__(self, policy: TanhGaussianEncoder | GaussianEncoder):
+    def __init__(self, policy: TanhGaussianEncoder | GaussianEncoder, obs_mu=0., obs_sd=1.):
         self.policy = policy
+        self.obs_mu = obs_mu
+        self.obs_sd = obs_sd
 
     def sample_action(self, observation: dict, sample_mean: bool = False) -> float:
         emg_obs = observation["emg_observation"]
         if not isinstance(emg_obs, torch.Tensor):
             emg_obs = torch.tensor(emg_obs, dtype=torch.float32)
+            emg_obs = normalize(emg_obs, self.obs_mu, self.obs_sd)
         
         with torch.no_grad():
             dist = self.policy.get_dist(emg_obs)
@@ -419,7 +400,7 @@ class EMGAgent:
 
 
 if __name__ == "__main__":
-    from lift.rl.utils import gym_env_maker, apply_env_transforms
+    from lift.rl.env_utils import gym_env_maker, apply_env_transforms
     from lift.teacher import load_teacher
     torch.manual_seed(0)
 
@@ -445,7 +426,6 @@ if __name__ == "__main__":
     # test tanh encoder
     input_dim = config.feature_size
     output_dim = config.action_size
-    h_dim = config.encoder.h_dim
     hidden_dims = [config.encoder.hidden_size for _ in range(config.encoder.n_layers)]
 
     encoder = TanhGaussianEncoder(
@@ -462,7 +442,7 @@ if __name__ == "__main__":
     bc_trainer = BCTrainer(config, env)
     with torch.no_grad():
         dist = bc_trainer.encoder.get_dist(batch["emg_obs"])
-        loss = bc_trainer.compute_loss(dist, batch["act"][..., :3])
+        loss, _, _ = bc_trainer.compute_loss(dist, batch["act"][..., :3])
     assert list(loss.shape) == []
     
     # test mi trainer
@@ -470,11 +450,10 @@ if __name__ == "__main__":
     with torch.no_grad():
         z_dist = mi_trainer.encoder.get_dist(batch["emg_obs"])
         z = z_dist.sample()
-        nce_loss = mi_trainer.compute_infonce_loss(batch["emg_obs"], z)
+        nce_loss = mi_trainer.compute_mi_loss(batch["emg_obs"], z)
         kl_loss = mi_trainer.compute_kl_loss(batch["obs"], z, z_dist)
 
     # test emg agent with tanh encoder
     agent = EMGAgent(encoder)
     act = agent.sample_action({"emg_observation": batch["emg_obs"].numpy()})
-    assert list(act.shape) == [batch_size, 4]
-    assert sum(act[:, -1] == 0) == batch_size
+    assert list(act.shape) == [batch_size, 3]

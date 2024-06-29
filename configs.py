@@ -83,15 +83,9 @@ class OfflineRLConfig(BaseModel):
     eval_rollout_steps: int = 100
 
 
-class EncoderConfig(BaseModel):
-    h_dim: int = 128 # mi critic output feature dim
-    tau: float = 0.5
-    beta_1: float = 1.0 # mi weight, use 0.5 for mse
-    beta_2: float = .1 # kl weight
-    kl_approx_method: str = "logp" # choices=[logp, abs, mse]
-    mi_approx_method: str = "tuba" # choices=[nce, tuba]
+class EncoderConfig(BaseModel):    
     hidden_size: int = 512
-    n_layers: int = 5
+    n_layers: int = 4
     dropout: float = 0.1
 
 
@@ -119,11 +113,16 @@ class PretrainConfig(BaseModel):
 
 
 class MIConfig(BaseModel):
+    beta_1: float = 1.0 # mi weight, use 0.5 for mse
+    beta_2: float = .1 # kl weight
+    beta_3: float = 3. # sl weight
+    kl_approx_method: str = "logp" # choices=[logp, abs, mse]
+    num_neg_samples: int = 50
     train_ratio: float = 0.8
     batch_size: int = 256
-    epochs: int = 50
+    epochs: int = 20
     max_steps: int = 500
-    lr: float = 3.0e-4
+    lr: float = 1.0e-3
     n_steps_rollout: int = 1_000
     random_pertube_prob: float = 0.0
     action_noise: float = 0.0
