@@ -2,6 +2,9 @@ import pickle
 import hashlib
 import torch
 
+def normalize(x, mu, std):
+    return (x - mu) / std
+
 def cross_entropy(p, q, eps=1e-6):
     logq = torch.log(q + eps)
     ce = -torch.sum(p * logq, dim=-1)
