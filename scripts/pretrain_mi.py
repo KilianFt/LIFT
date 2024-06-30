@@ -88,6 +88,20 @@ def load_fake_data(config):
 def load_augmentation(mad_windows, mad_labels, mad_actions, config):
     if config.simulator.interpolation == "weighted":
         # sample_features, sample_actions, _, _ = weighted_per_person_augmentation(config)
+        
+        """DEBUG: sample only one window for each action"""
+        num_samples_per_group = 1
+        mad_windows_group, mad_labels_group = mad_groupby_labels(mad_windows, mad_labels)
+        sample_idx = [torch.randint(0, len(g), size=(num_samples_per_group,)) for g in mad_windows_group]
+        mad_windows_group = [g[sample_idx[i]] for i, g in enumerate(mad_windows_group)]
+        mad_labels_group = [l * torch.ones_like(sample_idx[l]) for l in mad_labels_group]
+        mad_actions_group = [mad_labels_to_actions(
+                g, recording_strength=config.simulator.recording_strength,
+        ) for g in mad_labels_group]
+
+        mad_windows = torch.cat(mad_windows_group, dim=0)
+        mad_actions = torch.cat(mad_actions_group, dim=0)
+        
         sample_features, sample_actions = weighted_augmentation(mad_windows, mad_actions, config)
     elif config.simulator.interpolation == "random":
         window_list, label_list = mad_groupby_labels(mad_windows, mad_labels)

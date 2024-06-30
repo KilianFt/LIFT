@@ -86,7 +86,7 @@ class OfflineRLConfig(BaseModel):
 class EncoderConfig(BaseModel):    
     hidden_size: int = 512
     n_layers: int = 4
-    dropout: float = 0.1
+    dropout: float = 0.
 
 
 class SimulatorConfig(BaseModel):
@@ -104,9 +104,9 @@ class SimulatorConfig(BaseModel):
 class PretrainConfig(BaseModel):
     target_std: float = 0.5
     epochs: int = 100
-    num_augmentation: int = 50_000
+    num_augmentation: int = 10_000
     augmentation_distribution: str = "uniform" # choices=["uniform", "normal"]
-    train_subset: str = "combined" # choices=["interpolation", "combined"] MAD only is when num_aug is 0
+    train_subset: str = "interpolation" # choices=["interpolation", "combined"] MAD only is when num_aug is 0
     train_ratio: float = 0.8
     batch_size: int = 512
     lr: float = 3.0e-4
@@ -115,12 +115,13 @@ class PretrainConfig(BaseModel):
 class MIConfig(BaseModel):
     beta_1: float = 1.0 # mi weight, use 0.5 for mse
     beta_2: float = .1 # kl weight
-    beta_3: float = 3. # sl weight
+    beta_3: float = 1. # sl weight
     kl_approx_method: str = "logp" # choices=[logp, abs, mse]
     num_neg_samples: int = 50
+    sl_sd: float = 0.2 # fixed sl std
     train_ratio: float = 0.8
     batch_size: int = 256
-    epochs: int = 20
+    epochs: int = 50
     max_steps: int = 500
     lr: float = 1.0e-3
     n_steps_rollout: int = 1_000

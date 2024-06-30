@@ -172,16 +172,15 @@ class MITrainer(L.LightningModule):
     def __init__(self, config: BaseConfig, env: NpGymEnv, teacher: SAC | None = None, supervise: bool = False):
         super().__init__()
         self.supervise = supervise
+        self.sl_sd = config.mi.sl_sd
         self.num_neg_samples = config.mi.num_neg_samples
         self.lr = config.mi.lr
         self.beta_1 = config.mi.beta_1
         self.beta_2 = config.mi.beta_2
-        self.beta_3 = config.mi.beta_3
+        # self.beta_3 = config.mi.beta_3
         self.kl_approx_method = config.mi.kl_approx_method
-        self.mi_approx_method = config.mi.mi_approx_method
 
         assert self.kl_approx_method in ["logp", "abs", "mse"]
-        assert self.mi_approx_method in ["nce", "tuba"]
 
         self.x_dim = config.feature_size
         self.a_dim = config.action_size
@@ -254,9 +253,11 @@ class MITrainer(L.LightningModule):
             log_prior = teacher_dist.log_prob(z).sum(-1)
 
         log_post = z_dist.log_prob(z)
+        ent = torch_dist.Normal(z_dist.loc, z_dist.scale).entropy().sum(-1)
 
         if self.kl_approx_method == "logp":
-            kl = -(log_prior - log_post).mean()
+            # kl = -(log_prior - log_post).mean()
+            kl = -(log_prior + ent).mean()
         elif self.kl_approx_method == "abs":
             kl = 0.5 * nn.SmoothL1Loss()(log_post, log_prior)
         elif self.kl_approx_method == "mse":
@@ -274,6 +275,7 @@ class MITrainer(L.LightningModule):
         stats = {
             "log_prior": log_prior.data.cpu().mean().item(),
             "log_post": log_post.data.cpu().mean().item(),
+            "entropy": ent.data.cpu().mean().item(),
             "post_std": std_post.data.cpu().item(),
             "mae_prior": mae_prior.data.cpu().item(),
         }
@@ -282,11 +284,18 @@ class MITrainer(L.LightningModule):
     def compute_sl_loss(self, z, y):
         """Compute supervised loss"""
         if self.supervise and y is not None:
-            loss = torch.pow(z - y, 2).mean()
+            y_dist = torch_dist.Normal(z, torch.ones(1, device=z.device) * self.sl_sd)
+            loss = -y_dist.log_prob(y).sum(-1).mean()
         else:
             loss = torch.zeros(1, device=z.device)
 
-        stats = {"sl_loss": loss.data.cpu().item()}
+        with torch.no_grad():
+            mae = torch.abs(z - y).mean()
+        
+        stats = {
+            "sl_loss": loss.data.cpu().item(),
+            "mae": mae.data.cpu().item()
+        }
         return loss, stats
     
     def compute_loss(self, x, o, a, z_dist):
