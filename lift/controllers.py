@@ -177,7 +177,7 @@ class MITrainer(L.LightningModule):
         self.lr = config.mi.lr
         self.beta_1 = config.mi.beta_1
         self.beta_2 = config.mi.beta_2
-        # self.beta_3 = config.mi.beta_3
+        self.beta_3 = config.mi.beta_3
         self.kl_approx_method = config.mi.kl_approx_method
 
         assert self.kl_approx_method in ["logp", "abs", "mse"]

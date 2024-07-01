@@ -51,10 +51,13 @@ class Simulator(abc.ABC):
             self.return_features = return_features
             self.action_size = config.action_size
             self.num_bursts = config.simulator.n_bursts
-            self.num_channels = config.n_channels
+            self.num_channels = config.num_channels
             self.window_size = config.window_size
             self.burst_durations = [self.window_size // self.num_bursts] * (self.num_bursts - 1)
             self.burst_durations = self.burst_durations + [self.window_size - int(np.sum(self.burst_durations))]
+
+            if self.return_features:
+                self.num_features = 4
 
     @abc.abstractmethod
     def __call__(self, actions):
@@ -82,13 +85,14 @@ class NonParametricWeightedSimulator(Simulator):
         if return_features == False:
             raise NotImplementedError("Simulator only works with features")
 
+        self.num_features = 1
         # # load emg data of one person
         p = data_path.split('/')[-2]
         people_list = [f"Female{i}" for i in range(10)] + [f"Male{i}" for i in range(16)]
         other_list = [o_p for o_p in people_list if not o_p == p]
         person_windows, person_labels = load_all_mad_datasets(
             config.mad_base_path.as_posix(),
-            num_channels=config.n_channels,
+            num_channels=config.num_channels,
             emg_range=config.emg_range,
             window_size=config.window_size,
             window_overlap=config.window_overlap,
@@ -115,7 +119,7 @@ class NonParametricSimulator(Simulator):
         # load emg data of one person
         raw_emg, labels = load_mad_person_trial(
             data_path, 
-            num_channels=config.n_channels,
+            num_channels=config.num_channels,
         )
         windows = [
             make_overlap_windows(
@@ -354,7 +358,7 @@ if __name__ == "__main__":
     # verify that generated emg is similar to the MAD dataset
     emg, labels = load_mad_person_trial(
             config.mad_data_path / "Female0" / "training0",
-            num_channels=config.n_channels,
+            num_channels=config.num_channels,
         )
     actions = [MAD_LABELS_TO_DOF[l] for l in labels]
 

@@ -150,7 +150,7 @@ class BaseConfig(BaseModel):
     wandb_mode: str = "online"
 
     # data
-    n_channels: int = 8
+    num_channels: int = 8
     window_size: int = 200
     window_overlap: int = 50
     emg_range: list = [-128., 127.]

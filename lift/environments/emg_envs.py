@@ -28,7 +28,7 @@ class EMGEnv(gym.Wrapper):
             self.observation_space["emg_observation"] = gym.spaces.Box(
                 low=-10,
                 high=10,
-                shape=(emg_simulator.num_channels * 4,),
+                shape=(emg_simulator.num_channels * emg_simulator.num_features,),
                 dtype=np.float64
             )
         else:

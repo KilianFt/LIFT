@@ -13,6 +13,7 @@ from lift.teacher import load_teacher
 from lift.utils import normalize
 
 from lift.datasets import (
+    WeightedInterpolator,
     weighted_per_person_augmentation,
     weighted_augmentation,
     load_all_mad_datasets, 
@@ -56,7 +57,7 @@ def train(emg_features, actions, model, logger, config: BaseConfig):
     )
 
     trainer = L.Trainer(
-        max_epochs=config.mi.epochs, 
+        max_epochs=config.pretrain.epochs, 
         log_every_n_steps=1, 
         check_val_every_n_epoch=1,
         enable_checkpointing=False, 
@@ -89,19 +90,6 @@ def load_augmentation(mad_windows, mad_labels, mad_actions, config):
     if config.simulator.interpolation == "weighted":
         # sample_features, sample_actions, _, _ = weighted_per_person_augmentation(config)
         
-        """DEBUG: sample only one window for each action"""
-        num_samples_per_group = 1
-        mad_windows_group, mad_labels_group = mad_groupby_labels(mad_windows, mad_labels)
-        sample_idx = [torch.randint(0, len(g), size=(num_samples_per_group,)) for g in mad_windows_group]
-        mad_windows_group = [g[sample_idx[i]] for i, g in enumerate(mad_windows_group)]
-        mad_labels_group = [l * torch.ones_like(sample_idx[l]) for l in mad_labels_group]
-        mad_actions_group = [mad_labels_to_actions(
-                g, recording_strength=config.simulator.recording_strength,
-        ) for g in mad_labels_group]
-
-        mad_windows = torch.cat(mad_windows_group, dim=0)
-        mad_actions = torch.cat(mad_actions_group, dim=0)
-        
         sample_features, sample_actions = weighted_augmentation(mad_windows, mad_actions, config)
     elif config.simulator.interpolation == "random":
         window_list, label_list = mad_groupby_labels(mad_windows, mad_labels)
@@ -127,7 +115,7 @@ def load_data(config: BaseConfig, load_fake=False):
 
     mad_windows, mad_labels = load_all_mad_datasets(
         config.mad_base_path.as_posix(),
-        num_channels=config.n_channels,
+        num_channels=config.num_channels,
         emg_range=config.emg_range,
         window_size=config.window_size,
         window_overlap=config.window_overlap,
@@ -135,13 +123,27 @@ def load_data(config: BaseConfig, load_fake=False):
         skip_person=config.target_person,
         return_tensors=True,
     )
+    mad_actions = mad_labels_to_actions(
+        mad_labels, recording_strength=config.simulator.recording_strength,
+    )
+    """DEBUG: sample only one window for each action"""
+    num_samples_per_group = 1
+    mad_windows_group, mad_labels_group = mad_groupby_labels(mad_windows, mad_labels)
+    sample_idx = [torch.randint(0, len(g), size=(num_samples_per_group,)) for g in mad_windows_group]
+    mad_windows_group = [g[sample_idx[i]] for i, g in enumerate(mad_windows_group)]
+    mad_labels_group = [l * torch.ones_like(sample_idx[l]) for l in mad_labels_group]
+    mad_actions_group = [mad_labels_to_actions(
+            g, recording_strength=config.simulator.recording_strength,
+    ) for g in mad_labels_group]
+
+    mad_windows = torch.cat(mad_windows_group, dim=0)
+    mad_actions = torch.cat(mad_actions_group, dim=0)
+
     if config.simulator.interpolation == "weighted":
         mad_features = compute_features(mad_windows, feature_list=['MAV'])
     else:
         mad_features = compute_features(mad_windows)
-    mad_actions = mad_labels_to_actions(
-        mad_labels, recording_strength=config.simulator.recording_strength,
-    )
+
 
     if config.pretrain.num_augmentation > 0:
         sample_features, sample_actions = load_augmentation(mad_windows, mad_labels,
@@ -156,7 +158,9 @@ def load_data(config: BaseConfig, load_fake=False):
     else:
         features, actions = mad_features, mad_actions
 
-    return features, actions
+    """DEBUG"""
+    return features, actions, mad_features, mad_actions
+    # return features, actions
 
 def main():
     config = BaseConfig()
@@ -169,20 +173,25 @@ def main():
     else:
         logger = None
 
-    emg_features, actions = load_data(config)
+    emg_features, actions, mad_features, mad_actions = load_data(config)
     emg_mu = emg_features.mean(0)
     emg_sd = emg_features.std(0)
     emg_features_norm = normalize(emg_features, emg_mu, emg_sd)
     
     # validation setup
     teacher = load_teacher(config)
-    data_path = (config.mad_data_path / config.target_person / "training0").as_posix()
-    sim = SimulatorFactory.create_class(
-        data_path,
-        config,
-        return_features=True,
-    )
-        
+    # data_path = (config.mad_data_path / config.target_person / "training0").as_posix()
+    # sim = SimulatorFactory.create_class(
+    #     data_path,
+    #     config,
+    #     return_features=True,
+    # )
+    """DEBUG: only one sample per action"""
+    sim = WeightedInterpolator(mad_features, mad_actions)
+    sim.return_features = True
+    sim.num_channels = 8
+    sim.num_features = 1
+
     env = NpGymEnv(
         "FetchReachDense-v2",
         cat_obs=True,
