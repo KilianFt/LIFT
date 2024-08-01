@@ -58,7 +58,7 @@ class EMGEnv(gym.Wrapper):
         obs, rwd, done, info = self.env.step(action)
         obs["emg_observation"], next_teacher_action = self._obs_to_emg(obs)
 
-        info["teacher_action"] = self.teacher_action.flatten().copy()
+        info["intended_action"] = self.teacher_action.flatten().copy()
         if isinstance(self.teacher, ConditionedTeacher):
             info["teacher_meta_vars"] = self.teacher.get_meta_vars()
         self.teacher_action = next_teacher_action
@@ -82,7 +82,7 @@ class EMGTransform(Transform):
         >>> env.append_transform(t_emg)
         >>> check_env_specs(env)
         >>> data = env.reset()
-        >>> print(data["emg])
+        >>> print(data["emg"])
 
     """
     def __init__(self, teacher, simulator: Simulator, *args, **kwargs):

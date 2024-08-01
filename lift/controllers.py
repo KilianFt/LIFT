@@ -6,6 +6,7 @@ import torch.distributions as torch_dist
 from tensordict import TensorDict
 from torchrl.modules.distributions import TanhNormal
 from torchrl.modules import ProbabilisticActor
+from torchrl.envs.utils import ExplorationType, set_exploration_type
 
 from configs import BaseConfig
 from lift.neural_nets import MLP
@@ -178,6 +179,7 @@ class MITrainer(L.LightningModule):
         self.beta_1 = config.mi.beta_1
         self.beta_2 = config.mi.beta_2
         self.beta_3 = config.mi.beta_3
+        self.beta_4 = config.mi.beta_4
         self.kl_approx_method = config.mi.kl_approx_method
 
         assert self.kl_approx_method in ["logp", "abs", "mse"]
@@ -243,7 +245,8 @@ class MITrainer(L.LightningModule):
                 "observation": o,
                 "action": z,
             })
-            teacher_dist = self.teacher.get_dist(teacher_inputs)
+            with torch.no_grad():
+                teacher_dist = self.teacher.get_dist(teacher_inputs)
             log_prior = teacher_dist.log_prob(z)
         else:
             teacher_dist = torch_dist.Normal(
@@ -281,69 +284,89 @@ class MITrainer(L.LightningModule):
         }
         return kl, stats
     
-    def compute_sl_loss(self, z, y):
+    def compute_sl_loss(self, z, ideal_a):
         """Compute supervised loss"""
-        if self.supervise and y is not None:
-            y_dist = torch_dist.Normal(z, torch.ones(1, device=z.device) * self.sl_sd)
-            loss = -y_dist.log_prob(y).sum(-1).mean()
+
+
+        if self.supervise:  # and y is not None:
+            # y_dist = torch_dist.Normal(z, torch.ones(1, device=z.device) * self.sl_sd)
+            # loss = -y_dist.log_prob(y).sum(-1).mean()
+            # loss = -teacher_dist.log_prob(y).sum(-1).mean()
+
+            loss = torch.pow(z - ideal_a, 2).mean()
         else:
             loss = torch.zeros(1, device=z.device)
 
-        with torch.no_grad():
-            mae = torch.abs(z - y).mean()
+        mae = torch.abs(z - ideal_a).mean()
         
         stats = {
             "sl_loss": loss.data.cpu().item(),
             "mae": mae.data.cpu().item()
         }
         return loss, stats
-    
-    def compute_loss(self, x, o, a, z_dist):
-        z = z_dist.rsample()
-        mi_loss, mi_stats = self.compute_mi_loss(x, z)
-        kl_loss, kl_stats = self.compute_kl_loss(o, z, z_dist)
-        sl_loss, sl_stats = self.compute_sl_loss(z, a)
-        loss = self.beta_1 * mi_loss + self.beta_2 * kl_loss + self.beta_3 * sl_loss
 
-        stats = {
-            "loss": loss.data.cpu().item(), 
-            **mi_stats, **kl_stats, **sl_stats,
-        }
-        return loss, stats
-    
-    def training_step(self, batch, _):
+    def compute_cov(self, z):
+        """Compute representation covariance"""
+        z_mean = z.mean(0, keepdim=True)
+        z_res = z - z_mean
+        cov = torch.sum(z_res.unsqueeze(-2) * z_res.unsqueeze(-1), dim=0) / (len(z_res) - 1)
+        return cov
+
+    def compute_cov_loss(self, cov):
+        mask = (1 - torch.eye(len(cov))).to(cov.device)
+        loss = torch.sum(cov.abs() * mask) / mask.sum()
+        return loss
+
+    def compute_loss(self, batch):
         x = batch["emg_obs"]
-        a = batch["act"]
+
+        intended_a = batch["intended_action"]
         if "obs" in batch.keys():
             o = batch["obs"]
         else:
             o = None
 
+        teacher_inputs = TensorDict({"observation": o})
+        with set_exploration_type(ExplorationType.MODE), torch.no_grad():
+            teacher_a = self.teacher(teacher_inputs)["action"]
+
         z_dist = self.encoder.get_dist(x)
-        loss, stats = self.compute_loss(x, o, a, z_dist)
-        
+
+        z = z_dist.rsample()
+        mi_loss, mi_stats = self.compute_mi_loss(x, z)
+        kl_loss, kl_stats = self.compute_kl_loss(o, z, z_dist)
+
+        cov = self.compute_cov(z)
+        cov_loss = self.compute_cov_loss(cov)
+
+        sl_loss, sl_stats = self.compute_sl_loss(z, teacher_a)
+        loss = self.beta_1 * mi_loss + self.beta_2 * kl_loss + self.beta_3 * cov_loss + self.beta_4 * sl_loss
+
         with torch.no_grad():
-            mae = torch.abs(z_dist.mode - a).mean()
-            stats["act_mae"] = mae.data.cpu().item()
+            pred_a = z_dist.mode
+
+        mae = torch.abs(pred_a - intended_a).mean()
+        missalignment_mae = torch.abs(teacher_a - intended_a).mean()
+
+        stats = {
+            "loss": loss.data.cpu().item(),
+            "cov_loss": cov_loss.data.cpu().item(),
+            "act_mae": mae.data.cpu().item(),
+            "missalignment_mae": missalignment_mae.data.cpu().item(),
+            "intended_magnitude": intended_a.abs().mean(),
+            **mi_stats, **kl_stats, **sl_stats,
+        }
+        return loss, stats
+    
+    def training_step(self, batch, _):
+        loss, stats = self.compute_loss(batch)
 
         for k, v in stats.items():
             self.log(f"train/{k}", v)
         return loss
 
     def validation_step(self, batch, _):
-        x = batch["emg_obs"]
-        a = batch["act"]
-        if "obs" in batch.keys():
-            o = batch["obs"]
-        else:
-            o = None
-        
-        z_dist = self.encoder.get_dist(x)
-        loss, stats = self.compute_loss(x, o, a, z_dist)
-
-        with torch.no_grad():
-            mae = torch.abs(z_dist.mode - a).mean()
-            stats["act_mae"] = mae.data.cpu().item()
+        loss, stats = self.compute_loss(batch)
 
         for k, v in stats.items():
             self.log(f"val/{k}", v)
@@ -351,6 +374,7 @@ class MITrainer(L.LightningModule):
 
     def configure_optimizers(self):
         if self.optimizers() == []:
+            # optimizer = torch.optim.Adam([self.encoder.parameters(), self.critic.parameters()], lr=self.lr)
             optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
         else:
             optimizer = self.optimizers()
@@ -382,6 +406,7 @@ class EMGPolicy(L.LightningModule):
         return val_loss
 
     def configure_optimizers(self):
+        # FIXME do we compute the gradient of the teacher here?
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
         return optimizer
 

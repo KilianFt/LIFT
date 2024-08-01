@@ -49,8 +49,8 @@ def maybe_rollout(env: EMGEnv, policy: EMGAgent, config: BaseConfig, use_saved=T
     return data
 
 def validate_data(data, logger):
-    assert data["info"]["teacher_action"].shape == data["act"].shape
-    mae = np.abs(data["info"]["teacher_action"] - data["act"]).mean()
+    assert data["info"]["intended_action"].shape == data["act"].shape
+    mae = np.abs(data["info"]["intended_action"] - data["act"]).mean()
     sum_rwd = data["rwd"].sum()
     mean_rwd = data["rwd"].mean()
     std_rwd = data["rwd"].std()
@@ -83,7 +83,7 @@ def train(data, model, logger, config: BaseConfig):
     sl_data_dict = {
         "obs": data["obs"]["observation"],
         "emg_obs": data["obs"]["emg_observation"],
-        "act": data["info"]["teacher_action"], # privileged information for validation
+        "intended_action": data["info"]["intended_action"],
     }
     train_dataloader, val_dataloader = get_dataloaders(
         data_dict=sl_data_dict,
@@ -153,23 +153,26 @@ def main(kwargs=None):
     # init user with known noise and alpha for controlled experiment
     user = load_teacher(config, meta=True)
     user = ConditionedTeacher(
-        user, 
+        user,
         noise_range=config.noise_range,
         noise_slope_range=config.noise_slope_range,
         alpha_range=config.alpha_range,
         alpha_apply_range=config.alpha_apply_range,
+        user_bias=config.user_bias,
     )
     user.reset()
 
     # load models
     teacher = load_teacher(config)
-    bc_trainer = torch.load(config.models_path / "bc.pt")
+    bc_encoder_state_dict = torch.load(config.models_path / "pretrain_mi_encoder.pt")
+    bc_critic_state_dict = torch.load(config.models_path / "pretrain_mi_critic.pt")
     
-    trainer = MITrainer(config, env, teacher)
-    trainer.encoder.load_state_dict(bc_trainer.encoder.state_dict())
+    trainer = MITrainer(config, env, teacher, supervise=True)
+    trainer.encoder.load_state_dict(bc_encoder_state_dict)
+    trainer.critic.load_state_dict(bc_critic_state_dict)
     
     # interactive training loop
-    num_sessions = 10
+    num_sessions = 5
 
     dataset = {}
 
@@ -191,8 +194,6 @@ def main(kwargs=None):
         # if i == 1:
         #     import pdb
         #     pdb.set_trace()
-
-        # validate(env, user, sim, trainer.encoder, logger)
 
         # TODO: beta annealing
 

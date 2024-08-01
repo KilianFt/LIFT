@@ -158,7 +158,8 @@ class TeacherTransform(Transform):
             tensordict_reset["observation"] = torch.cat([tensordict_reset["observation"], self.noise], dim=-1)
 
         if self.noise_slope_range is not None:
-            tensordict_reset["observation"] = torch.cat([tensordict_reset["observation"], self.noise_slope], dim=-1)
+            tensordict_reset["observation"] = torch.cat([tensordict_reset["observation"],
+                                                self.noise_slope], dim=-1)
         return tensordict_reset
     
     def transform_observation_spec(self, observation_spec):
@@ -179,6 +180,7 @@ class ConditionedTeacher:
         noise_slope_range: list[float] | None = [0., 1.], 
         alpha_range: list[float] | None = [0., 1.], 
         alpha_apply_range: list[float] | None = [1., 3.],
+        user_bias: float | None = None,
     ):
         """
         Args:
@@ -191,6 +193,7 @@ class ConditionedTeacher:
         self.noise_slope_range = noise_slope_range
         self.alpha_range = alpha_range
         self.alpha_apply_range = alpha_apply_range
+        self.user_bias = user_bias
 
         self.teacher = teacher
 
@@ -228,9 +231,15 @@ class ConditionedTeacher:
 
         if self.alpha is not None:
             alpha = compute_alpha_scale(obs["observation"], self.alpha, self.alpha_apply_range)
-            new_scale =  act_dist.scale * alpha
-            act_dist = TanhNormal(loc=act_dist.loc, scale=new_scale,
-                                  upscale=act_dist.upscale, min=act_dist.min, max=act_dist.max)
+            new_scale = act_dist.scale * alpha
+        else:
+            new_scale = act_dist.scale
+
+        new_loc = act_dist.loc
+        if self.user_bias is not None:
+            new_loc += self.user_bias
+        act_dist = TanhNormal(loc=new_loc, scale=new_scale,
+                              upscale=act_dist.upscale, min=act_dist.min, max=act_dist.max)
         return act_dist
     
     def sample_action(self, obs, sample_mean=False):

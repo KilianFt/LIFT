@@ -81,6 +81,20 @@ class WeightedInterpolator:
         interpolated_features_batch = torch.tensordot(weights, self.features, dims=([1],[0]))
         return interpolated_features_batch
 
+def get_samples_per_group(windows, labels, config, num_samples_per_group=1):
+    mad_windows_group, mad_labels_group = mad_groupby_labels(windows, labels)
+    sample_idx = [torch.randint(0, len(g), size=(num_samples_per_group,)) for g in mad_windows_group]
+    mad_windows_group = [g[sample_idx[i]] for i, g in enumerate(mad_windows_group)]
+    mad_labels_group = [l * torch.ones_like(sample_idx[l]) for l in mad_labels_group]
+    # mad_actions_group = [mad_labels_to_actions(
+    #         g, recording_strength=config.simulator.recording_strength,
+    # ) for g in mad_labels_group]
+
+    new_windows = torch.cat(mad_windows_group, dim=0)
+    new_labels = torch.cat(mad_labels_group, dim=0)
+    return new_windows, new_labels
+
+
 def format_seq_data(data: dict) -> list[dict]:
     """Format rollout data into sequences"""
     obs_keys = data["obs"].keys()

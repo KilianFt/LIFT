@@ -7,13 +7,13 @@ from pytorch_lightning.loggers import WandbLogger
 from configs import BaseConfig
 from lift.environments.gym_envs import NpGymEnv
 from lift.environments.emg_envs import EMGEnv
-from lift.environments.simulator import SimulatorFactory
+from lift.environments.simulator import SimulatorFactory, NonParametricWeightedSimulator
 from lift.environments.rollout import rollout
 from lift.teacher import load_teacher
 from lift.utils import normalize
 
 from lift.datasets import (
-    WeightedInterpolator,
+    get_samples_per_group,
     weighted_per_person_augmentation,
     weighted_augmentation,
     load_all_mad_datasets, 
@@ -113,6 +113,15 @@ def load_data(config: BaseConfig, load_fake=False):
     if load_fake:
         return load_fake_data(config)
 
+    # people_list = [f"Female{i}" for i in range(10)] + [f"Male{i}" for i in range(16)]
+    # people_list = [p for p in people_list if not p == config.target_person]
+
+    # mad_windows = None
+    # mad_labels = None
+
+    # for p in people_list:
+    #     other_list = [o_p for o_p in people_list if not o_p == p]
+
     mad_windows, mad_labels = load_all_mad_datasets(
         config.mad_base_path.as_posix(),
         num_channels=config.num_channels,
@@ -121,23 +130,23 @@ def load_data(config: BaseConfig, load_fake=False):
         window_overlap=config.window_overlap,
         desired_labels=config.desired_mad_labels,
         skip_person=config.target_person,
+        # skip_person=other_list,
         return_tensors=True,
     )
+        # """DEBUG: sample only one window for each action"""
+        # p_windows, p_labels = get_samples_per_group(p_windows, p_labels, config, num_samples_per_group=1)
+
+        # if mad_windows is None:
+        #     mad_windows = p_windows
+        #     mad_labels = p_labels
+        # else:
+        #     mad_windows = torch.cat([mad_windows, p_windows], dim=0)
+        #     mad_labels = torch.cat([mad_labels, p_labels], dim=0)
+
+
     mad_actions = mad_labels_to_actions(
         mad_labels, recording_strength=config.simulator.recording_strength,
     )
-    """DEBUG: sample only one window for each action"""
-    num_samples_per_group = 1
-    mad_windows_group, mad_labels_group = mad_groupby_labels(mad_windows, mad_labels)
-    sample_idx = [torch.randint(0, len(g), size=(num_samples_per_group,)) for g in mad_windows_group]
-    mad_windows_group = [g[sample_idx[i]] for i, g in enumerate(mad_windows_group)]
-    mad_labels_group = [l * torch.ones_like(sample_idx[l]) for l in mad_labels_group]
-    mad_actions_group = [mad_labels_to_actions(
-            g, recording_strength=config.simulator.recording_strength,
-    ) for g in mad_labels_group]
-
-    mad_windows = torch.cat(mad_windows_group, dim=0)
-    mad_actions = torch.cat(mad_actions_group, dim=0)
 
     if config.simulator.interpolation == "weighted":
         mad_features = compute_features(mad_windows, feature_list=['MAV'])
@@ -158,39 +167,44 @@ def load_data(config: BaseConfig, load_fake=False):
     else:
         features, actions = mad_features, mad_actions
 
-    """DEBUG"""
-    return features, actions, mad_features, mad_actions
-    # return features, actions
 
+    return features, actions
+
+# def main(beta_1, beta_2, beta_3):
 def main():
     config = BaseConfig()
+    # config.mi.beta_1 = beta_1
+    # config.mi.beta_2 = beta_2
+    # config.mi.beta_3 = beta_3
     L.seed_everything(config.seed)
     if config.use_wandb:
-        _ = wandb.init(project='lift', tags='align_teacher')
-        config = BaseConfig(**wandb.config)
+        _ = wandb.init(project='lift', tags=['align_teacher', 'beta_sweep_generalization'])
+        # config = BaseConfig(**wandb.config)
         logger = WandbLogger()
         wandb.config.update(config.model_dump())
     else:
         logger = None
 
-    emg_features, actions, mad_features, mad_actions = load_data(config)
+    emg_features, actions, = load_data(config)
     emg_mu = emg_features.mean(0)
     emg_sd = emg_features.std(0)
     emg_features_norm = normalize(emg_features, emg_mu, emg_sd)
     
     # validation setup
     teacher = load_teacher(config)
-    # data_path = (config.mad_data_path / config.target_person / "training0").as_posix()
+    data_path = (config.mad_data_path / config.target_person / "training0").as_posix()
     # sim = SimulatorFactory.create_class(
     #     data_path,
     #     config,
     #     return_features=True,
     # )
-    """DEBUG: only one sample per action"""
-    sim = WeightedInterpolator(mad_features, mad_actions)
-    sim.return_features = True
-    sim.num_channels = 8
-    sim.num_features = 1
+    """DEBUG: only one sample per action from one person"""
+    sim = NonParametricWeightedSimulator(    
+        data_path,
+        config,
+        return_features=True,
+        # num_samples_per_group=1,
+        )
 
     env = NpGymEnv(
         "FetchReachDense-v2",
@@ -208,7 +222,19 @@ def main():
     # test once after train
     validate(env, teacher, sim, trainer.encoder, emg_mu, emg_sd, logger)
 
-    # torch.save(trainer, config.models_path / "pretrain_mi.pt")
+    torch.save(trainer.encoder.state_dict(), config.models_path / "pretrain_mi_encoder.pt")
+    torch.save(trainer.critic.state_dict(), config.models_path / "pretrain_mi_critic.pt")
+    if config.use_wandb:
+        wandb.finish()
+
 
 if __name__ == "__main__":
+    # import numpy as np
+    # from itertools import product
+
+    # betas_space = np.linspace(0.1,1,3)
+
+    # for b1, b2, b3 in product(betas_space, betas_space, betas_space):
+    #     main(b1, b2, b3)
+
     main()

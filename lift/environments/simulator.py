@@ -9,6 +9,7 @@ import torch.distributions as torch_dist
 from tensordict import TensorDict
 
 from lift.datasets import (
+    get_samples_per_group,
     load_all_mad_datasets,
     WeightedInterpolator,
     load_mad_person_trial,
@@ -80,7 +81,7 @@ class SimulatorFactory:
 
 
 class NonParametricWeightedSimulator(Simulator):
-    def __init__(self, data_path, config, return_features=True) -> None:
+    def __init__(self, data_path, config, return_features=True, num_samples_per_group=None) -> None:
         super().__init__(data_path, config, return_features)
         if return_features == False:
             raise NotImplementedError("Simulator only works with features")
@@ -101,6 +102,9 @@ class NonParametricWeightedSimulator(Simulator):
             return_tensors=True,
             verbose=False,
         )
+        if num_samples_per_group is not None:
+            person_windows, person_labels = get_samples_per_group(person_windows, person_labels, config, num_samples_per_group)
+
         person_features = compute_features(person_windows, feature_list = ['MAV'])
         person_actions = mad_labels_to_actions(
             person_labels, recording_strength=config.simulator.recording_strength,
