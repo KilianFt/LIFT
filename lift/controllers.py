@@ -40,14 +40,14 @@ class CategoricalEncoder(nn.Module):
 
 class GaussianEncoder(nn.Module):
     """Output a gaussian distribution"""
-    def __init__(self, input_dim, output_dim, hidden_dims, dropout=0.):
+    def __init__(self, input_dim, output_dim, hidden_dims, dropout=0., activation=nn.SiLU):
         super().__init__()
         self.mlp = MLP(
             input_dim, 
             output_dim * 2, 
             hidden_dims, 
             dropout=dropout,
-            activation=nn.SiLU, 
+            activation=activation, 
             output_activation=None,
         )
         self._min_logstd = -20.0
@@ -79,12 +79,13 @@ class TanhGaussianEncoder(nn.Module):
             dropout=0., 
             out_min=-1., 
             out_max=1.,
+            activation=nn.SiLU, 
         ):
         super().__init__()
         self.out_min = out_min
         self.out_max = out_max
         self.base = GaussianEncoder(
-            input_dim, output_dim, hidden_dims, dropout
+            input_dim, output_dim, hidden_dims, dropout, activation
         )
     
     def get_dist(self, x):
@@ -100,7 +101,7 @@ class TanhGaussianEncoder(nn.Module):
 
 class BCTrainer(L.LightningModule):
     """Behavior cloning trainer"""
-    def __init__(self, config: BaseConfig, env: NpGymEnv):
+    def __init__(self, config: BaseConfig, env: NpGymEnv, activation=nn.SiLU):
         super().__init__()
         self.lr = config.pretrain.lr
         self.x_dim = config.feature_size
@@ -117,6 +118,7 @@ class BCTrainer(L.LightningModule):
             dropout=config.encoder.dropout,
             out_min=self.act_min,
             out_max=self.act_max,
+            activation=activation,
         )
         self.target_std = config.pretrain.target_std
         self.beta = 0.1
@@ -129,7 +131,10 @@ class BCTrainer(L.LightningModule):
         # mae = torch.abs(dist.mode - a).mean()
         # std_loss = torch.abs(dist.scale - self.target_std).mean()
         mode_loss = nn.SmoothL1Loss().forward(dist.mode, a)
-        std_loss = torch.pow(dist.scale - self.target_std, 2).mean()
+        if self.target_std is not None:
+            std_loss = torch.pow(dist.scale - self.target_std, 2).mean()
+        else:
+            std_loss = torch.tensor(0).to(a.device)
         loss = mode_loss + self.beta * std_loss
         return loss, mode_loss, std_loss
     
@@ -179,7 +184,6 @@ class MITrainer(L.LightningModule):
         self.beta_1 = config.mi.beta_1
         self.beta_2 = config.mi.beta_2
         self.beta_3 = config.mi.beta_3
-        self.beta_4 = config.mi.beta_4
         self.kl_approx_method = config.mi.kl_approx_method
 
         assert self.kl_approx_method in ["logp", "abs", "mse"]
@@ -249,6 +253,7 @@ class MITrainer(L.LightningModule):
                 teacher_dist = self.teacher.get_dist(teacher_inputs)
             log_prior = teacher_dist.log_prob(z)
         else:
+            # TODO this should be done with the supervised labels only, other for online
             teacher_dist = torch_dist.Normal(
                 torch.zeros(1, device=z.device), 
                 torch.ones(1, device=z.device),
@@ -284,7 +289,7 @@ class MITrainer(L.LightningModule):
         }
         return kl, stats
     
-    def compute_sl_loss(self, z, ideal_a):
+    def compute_sl_loss(self, z, y):
         """Compute supervised loss"""
 
 
@@ -293,11 +298,12 @@ class MITrainer(L.LightningModule):
             # loss = -y_dist.log_prob(y).sum(-1).mean()
             # loss = -teacher_dist.log_prob(y).sum(-1).mean()
 
-            loss = torch.pow(z - ideal_a, 2).mean()
+            loss = torch.pow(z - y, 2).mean()
+            # loss = nn.SmoothL1Loss().forward(z, y)
         else:
             loss = torch.zeros(1, device=z.device)
 
-        mae = torch.abs(z - ideal_a).mean()
+        mae = torch.abs(z - y).mean()
         
         stats = {
             "sl_loss": loss.data.cpu().item(),
@@ -305,55 +311,46 @@ class MITrainer(L.LightningModule):
         }
         return loss, stats
 
-    def compute_cov(self, z):
-        """Compute representation covariance"""
-        z_mean = z.mean(0, keepdim=True)
-        z_res = z - z_mean
-        cov = torch.sum(z_res.unsqueeze(-2) * z_res.unsqueeze(-1), dim=0) / (len(z_res) - 1)
-        return cov
-
-    def compute_cov_loss(self, cov):
-        mask = (1 - torch.eye(len(cov))).to(cov.device)
-        loss = torch.sum(cov.abs() * mask) / mask.sum()
-        return loss
-
     def compute_loss(self, batch):
         x = batch["emg_obs"]
+        y = batch["sl_act"]
 
-        intended_a = batch["intended_action"]
         if "obs" in batch.keys():
             o = batch["obs"]
         else:
             o = None
 
-        teacher_inputs = TensorDict({"observation": o})
-        with set_exploration_type(ExplorationType.MODE), torch.no_grad():
-            teacher_a = self.teacher(teacher_inputs)["action"]
-
         z_dist = self.encoder.get_dist(x)
 
         z = z_dist.rsample()
+
         mi_loss, mi_stats = self.compute_mi_loss(x, z)
         kl_loss, kl_stats = self.compute_kl_loss(o, z, z_dist)
+        # TODO this should be only on augmented dataset
+        sl_loss, sl_stats = self.compute_sl_loss(z, y)
 
-        cov = self.compute_cov(z)
-        cov_loss = self.compute_cov_loss(cov)
-
-        sl_loss, sl_stats = self.compute_sl_loss(z, teacher_a)
-        loss = self.beta_1 * mi_loss + self.beta_2 * kl_loss + self.beta_3 * cov_loss + self.beta_4 * sl_loss
+        loss = self.beta_1 * mi_loss + self.beta_2 * kl_loss + self.beta_3 * sl_loss
 
         with torch.no_grad():
             pred_a = z_dist.mode
 
-        mae = torch.abs(pred_a - intended_a).mean()
-        missalignment_mae = torch.abs(teacher_a - intended_a).mean()
+        if "intended_action" in batch.keys():
+            teacher_inputs = TensorDict({"observation": o})
+            with set_exploration_type(ExplorationType.MODE), torch.no_grad():
+                teacher_a = self.teacher(teacher_inputs)["action"]
+                
+            intended_a = batch["intended_action"]
+            mae = torch.abs(pred_a - intended_a).mean().data.cpu().item()
+            missalignment_mae = torch.abs(teacher_a - intended_a).mean().data.cpu().item()
+        else:
+            mae = 0.
+            missalignment_mae = 0.
 
         stats = {
             "loss": loss.data.cpu().item(),
-            "cov_loss": cov_loss.data.cpu().item(),
-            "act_mae": mae.data.cpu().item(),
-            "missalignment_mae": missalignment_mae.data.cpu().item(),
-            "intended_magnitude": intended_a.abs().mean(),
+            "act_mae": mae,
+            "missalignment_mae": missalignment_mae,
+            # "intended_magnitude": intended_a.abs().mean(),
             **mi_stats, **kl_stats, **sl_stats,
         }
         return loss, stats
@@ -374,7 +371,6 @@ class MITrainer(L.LightningModule):
 
     def configure_optimizers(self):
         if self.optimizers() == []:
-            # optimizer = torch.optim.Adam([self.encoder.parameters(), self.critic.parameters()], lr=self.lr)
             optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
         else:
             optimizer = self.optimizers()

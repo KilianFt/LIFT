@@ -215,8 +215,14 @@ class ConditionedTeacher:
     
     def set_meta_vars(self, meta_vars):
         self.noise = meta_vars["noise"]
+        if not isinstance(meta_vars["noise"], np.ndarray):
+            self.noise = np.array([self.noise]) 
         self.noise_slope = meta_vars["noise_slope"]
+        if not isinstance(meta_vars["noise_slope"], np.ndarray):
+            self.noise_slope = np.array([self.noise_slope])
         self.alpha = meta_vars["alpha"]
+        if not isinstance(meta_vars["alpha"], np.ndarray):
+            self.alpha = np.array(self.alpha)
 
     def get_action_dist(self, obs):
         obs_ = copy.deepcopy(obs)

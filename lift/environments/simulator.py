@@ -91,7 +91,7 @@ class NonParametricWeightedSimulator(Simulator):
         p = data_path.split('/')[-2]
         people_list = [f"Female{i}" for i in range(10)] + [f"Male{i}" for i in range(16)]
         other_list = [o_p for o_p in people_list if not o_p == p]
-        person_windows, person_labels = load_all_mad_datasets(
+        person_windows, person_labels, _ = load_all_mad_datasets(
             config.mad_base_path.as_posix(),
             num_channels=config.num_channels,
             emg_range=config.emg_range,

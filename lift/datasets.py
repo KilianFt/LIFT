@@ -10,6 +10,7 @@ from tensordict import TensorDict
 from torch.utils.data import Dataset, DataLoader, random_split
 from torch.nn.utils.rnn import pad_sequence
 from libemg.feature_extractor import FeatureExtractor
+from sklearn.preprocessing import LabelEncoder
 
 class EMGSLDataset(Dataset):
     """Supervised learning dataset"""
@@ -49,11 +50,12 @@ class EMGSeqDataset(Dataset):
         return out
 
 class WeightedInterpolator:
-    def __init__(self, features, actions, k=None):
+    def __init__(self, features, actions, k=None, sample=False):
         self.features = features
         self.actions = actions
         self.epsilon = 1e-5
         self.k = k
+        self.sample = sample
 
     def __call__(self, new_actions):
         if not isinstance(new_actions, torch.Tensor):
@@ -68,7 +70,13 @@ class WeightedInterpolator:
 
         # Step 4: select k elements of the weights, set rest to 0
         if self.k is not None:
-            indices = torch.multinomial(weights, self.k, replacement=False)
+            # TODO find a way to make sure that each sample belongs to a different action
+            # maybe do conditional sampling? first sample first action, then second, then third etc
+            if self.sample:
+                indices = torch.multinomial(weights, self.k, replacement=False)
+            else:
+                indices = torch.topk(weights, k=self.k, dim=1).indices
+
             mask = torch.zeros_like(weights)
             mask.scatter_(1, indices, 1)
 
@@ -81,14 +89,12 @@ class WeightedInterpolator:
         interpolated_features_batch = torch.tensordot(weights, self.features, dims=([1],[0]))
         return interpolated_features_batch
 
-def get_samples_per_group(windows, labels, config, num_samples_per_group=1):
+
+def get_samples_per_group(windows, labels, num_samples_per_group=1):
     mad_windows_group, mad_labels_group = mad_groupby_labels(windows, labels)
     sample_idx = [torch.randint(0, len(g), size=(num_samples_per_group,)) for g in mad_windows_group]
     mad_windows_group = [g[sample_idx[i]] for i, g in enumerate(mad_windows_group)]
     mad_labels_group = [l * torch.ones_like(sample_idx[l]) for l in mad_labels_group]
-    # mad_actions_group = [mad_labels_to_actions(
-    #         g, recording_strength=config.simulator.recording_strength,
-    # ) for g in mad_labels_group]
 
     new_windows = torch.cat(mad_windows_group, dim=0)
     new_labels = torch.cat(mad_labels_group, dim=0)
@@ -297,7 +303,7 @@ def load_mad_dataset(
 
     dataset = {}
     for trial in trial_names:
-        trial_dataset = {'emg': [], 'labels': []}
+        trial_dataset = {'emg': [], 'labels': [], 'person_id': []}
         for person_dir in person_folders:
             # skip loading data for a certain person
             if skip_person is not None and person_dir in skip_person:
@@ -323,10 +329,12 @@ def load_mad_dataset(
             
             trial_dataset['emg'].append(np.concatenate(windows))
             trial_dataset['labels'].append(np.concatenate(labels))
+            trial_dataset['person_id'].append([f"{trial}_{person_dir}"] * len(trial_dataset["labels"][-1]))
         
         if len(trial_dataset['emg']) > 0:
             trial_dataset['emg'] = np.concatenate(trial_dataset['emg'])
             trial_dataset['labels'] = np.concatenate(trial_dataset['labels']).astype(int)
+            trial_dataset['person_id'] = sum(trial_dataset['person_id'], [])
         dataset[trial] = trial_dataset
     return dataset
 
@@ -383,6 +391,13 @@ def load_all_mad_datasets(
             eval_dataset['Test0']['labels'],
             eval_dataset['Test1']['labels'],
         ])
+        mad_person_id = sum(
+            [
+                eval_dataset['training0']['person_id'],
+                eval_dataset['Test0']['person_id'],
+                eval_dataset['Test0']['person_id'],
+            ], []
+        )
     elif len(eval_dataset['training0']['emg']) < 1:
         mad_windows = np.concatenate([
             train_dataset['training0']['emg'],
@@ -390,6 +405,7 @@ def load_all_mad_datasets(
         mad_labels = np.concatenate([
             train_dataset['training0']['labels'],
         ])
+        mad_person_id = train_dataset['training0']['person_id']
     else:
         mad_windows = np.concatenate([
             train_dataset['training0']['emg'],
@@ -403,13 +419,23 @@ def load_all_mad_datasets(
             eval_dataset['Test0']['labels'],
             eval_dataset['Test1']['labels'],
         ])
+        mad_person_id = sum(
+            [
+                train_dataset['training0']['person_id'],
+                eval_dataset['training0']['person_id'],
+                eval_dataset['Test0']['person_id'],
+                eval_dataset['Test0']['person_id'],
+            ], []
+        )
+    mad_person_id = LabelEncoder().fit_transform(mad_person_id)
 
     if verbose:
         logging.info("MAD dataset loaded")
     if return_tensors:
         mad_windows = torch.tensor(mad_windows, dtype=torch.float32)
         mad_labels = torch.tensor(mad_labels)
-    return mad_windows, mad_labels
+        mad_person_id = torch.tensor(mad_person_id)
+    return mad_windows, mad_labels, mad_person_id
 
 def mad_groupby_labels(emg: np.array, labels: np.array):
     """Group emg into list according to labels
@@ -534,7 +560,8 @@ def mad_augmentation(
 def weighted_augmentation(mad_windows, mad_actions, config):
     mad_features = compute_features(mad_windows, feature_list = ['MAV'])
     interpolator = WeightedInterpolator(mad_features, mad_actions,
-                                        k=config.simulator.k)
+                                        k=config.simulator.k,
+                                        sample=config.simulator.sample)
 
     if config.pretrain.augmentation_distribution == 'uniform':
         sample_actions = torch.rand(config.pretrain.num_augmentation,

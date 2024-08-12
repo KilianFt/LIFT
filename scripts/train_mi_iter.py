@@ -174,6 +174,7 @@ def main(kwargs=None):
     # interactive training loop
     num_sessions = 5
 
+    # TODO init dataset with supervised
     dataset = {}
 
     for i in range(num_sessions):

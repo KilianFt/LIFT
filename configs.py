@@ -98,24 +98,25 @@ class SimulatorConfig(BaseModel):
     base_noise: float = 0.005
     n_bursts: int = 1
     recording_strength: float = 0.8
-    k: int | None = None # number of samples considered in weighted simulator
+    k: int | None = 5 # number of samples considered in weighted simulator
+    sample: bool = False
 
 
 class PretrainConfig(BaseModel):
     target_std: float = 0.5
     epochs: int = 100
-    num_augmentation: int = 10_000
+    num_augmentation: int = 1_000
     augmentation_distribution: str = "uniform" # choices=["uniform", "normal"]
-    train_subset: str = "interpolation" # choices=["interpolation", "combined"] MAD only is when num_aug is 0
+    train_subset: str = "combined" # choices=["interpolation", "combined"] MAD only is when num_aug is 0
     train_ratio: float = 0.8
     batch_size: int = 512
     lr: float = 3.0e-4
 
 
 class MIConfig(BaseModel):
-    beta_1: float = 1.0 # mi weight, use 0.5 for mse
-    beta_2: float = .1 # kl weight
-    beta_3: float = 1. # sl weight
+    beta_1: float = .005 # mi weight, use 0.5 for mse
+    beta_2: float = 0.0 # kl weight
+    beta_3: float = 1.0 # sl weight
     kl_approx_method: str = "logp" # choices=[logp, abs, mse]
     num_neg_samples: int = 50
     sl_sd: float = 0.2 # fixed sl std
@@ -157,22 +158,24 @@ class BaseConfig(BaseModel):
     desired_mad_labels: list = [0, 1, 2, 3, 4, 5, 6]
 
     # user model
-    noise_range: list | None = [0., 1.] # noise added to teacher env
-    noise_slope_range: list | None = [0., 1.] # action dependent noise
-    alpha_range: list | None = [1., 3.] # ratio multiplied to teacher std
-    alpha_apply_range: list | None = [0., 3.] # goal dist range to apply alpha scaling
+    noise_range: list | None = [.0, .0]#[0., 1.] # noise added to teacher env
+    noise_slope_range: list | None = [0., 0.]#[0., 1.] # action dependent noise
+    alpha_range: list | None = [3., 3.]#[1., 3.] # ratio multiplied to teacher std
+    alpha_apply_range: list | None = [0., 3.,] # goal dist range to apply alpha scaling
     noise_drift: list | None = None#[-0.1, 0.0] # [offset, std]
     alpha_drift: list | None = None#[-0.1, 0.0] # [-0.1, 0.2] # [offset, std]
+    # what if user is biased?
+    user_bias: float | None = 0.4
 
-    seed: int = 100
+    seed: int = 1001
     num_workers: int = 7
     teacher_train_timesteps: int = 150_000
-    action_size: int = 3 # could be read from env
-    feature_size: int = 8#32 # could be read from env
+    action_size: int = 3  # could be read from env
+    feature_size: int = 8  # could be read from env
 
     gradient_clip_val: float = 2.
     checkpoint_frequency: int = 1
-    save_top_k: int = -1 # set to -1 to save all checkpoints
+    save_top_k: int = -1  # set to -1 to save all checkpoints
     
     teacher: TeacherConfig = TeacherConfig()
     encoder: EncoderConfig = EncoderConfig()
