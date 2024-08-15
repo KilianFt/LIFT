@@ -111,11 +111,14 @@ class PretrainConfig(BaseModel):
     train_ratio: float = 0.8
     batch_size: int = 512
     lr: float = 3.0e-4
+    beta_1: float = .005 # mi weight, use 0.5 for mse
+    beta_2: float = 0.0 # kl weight
+    beta_3: float = 1.0 # sl weight
 
 
 class MIConfig(BaseModel):
-    beta_1: float = .005 # mi weight, use 0.5 for mse
-    beta_2: float = 0.0 # kl weight
+    beta_1: float = 1.0 # mi weight, use 0.5 for mse
+    beta_2: float = 0.1 # kl weight
     beta_3: float = 1.0 # sl weight
     kl_approx_method: str = "logp" # choices=[logp, abs, mse]
     num_neg_samples: int = 50
@@ -125,7 +128,7 @@ class MIConfig(BaseModel):
     epochs: int = 50
     max_steps: int = 500
     lr: float = 1.0e-3
-    n_steps_rollout: int = 1_000
+    n_steps_rollout: int = 10_000
     random_pertube_prob: float = 0.0
     action_noise: float = 0.0
 
@@ -158,9 +161,9 @@ class BaseConfig(BaseModel):
     desired_mad_labels: list = [0, 1, 2, 3, 4, 5, 6]
 
     # user model
-    noise_range: list | None = [.0, .0]#[0., 1.] # noise added to teacher env
+    noise_range: list | None = [.8, .8]#[0., 1.] # noise added to teacher env
     noise_slope_range: list | None = [0., 0.]#[0., 1.] # action dependent noise
-    alpha_range: list | None = [3., 3.]#[1., 3.] # ratio multiplied to teacher std
+    alpha_range: list | None = [1., 1.]#[1., 3.] # ratio multiplied to teacher std
     alpha_apply_range: list | None = [0., 3.,] # goal dist range to apply alpha scaling
     noise_drift: list | None = None#[-0.1, 0.0] # [offset, std]
     alpha_drift: list | None = None#[-0.1, 0.0] # [-0.1, 0.2] # [offset, std]

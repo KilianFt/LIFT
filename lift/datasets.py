@@ -71,7 +71,6 @@ class WeightedInterpolator:
         # Step 4: select k elements of the weights, set rest to 0
         if self.k is not None:
             # TODO find a way to make sure that each sample belongs to a different action
-            # maybe do conditional sampling? first sample first action, then second, then third etc
             if self.sample:
                 indices = torch.multinomial(weights, self.k, replacement=False)
             else:

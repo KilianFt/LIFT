@@ -312,8 +312,13 @@ class MITrainer(L.LightningModule):
         return loss, stats
 
     def compute_loss(self, batch):
-        x = batch["emg_obs"]
-        y = batch["sl_act"]
+        sl_x = batch["sl_emg_obs"]
+        sl_y = batch["sl_act"]
+
+        if self.supervise:
+            x = sl_x
+        else:
+            x = batch["emg_obs"]
 
         if "obs" in batch.keys():
             o = batch["obs"]
@@ -321,13 +326,15 @@ class MITrainer(L.LightningModule):
             o = None
 
         z_dist = self.encoder.get_dist(x)
-
         z = z_dist.rsample()
 
         mi_loss, mi_stats = self.compute_mi_loss(x, z)
         kl_loss, kl_stats = self.compute_kl_loss(o, z, z_dist)
-        # TODO this should be only on augmented dataset
-        sl_loss, sl_stats = self.compute_sl_loss(z, y)
+
+        # compute this on augmented supervised dataset
+        sl_z_dist = self.encoder.get_dist(sl_x)
+        sl_z = sl_z_dist.rsample()
+        sl_loss, sl_stats = self.compute_sl_loss(sl_z, sl_y)
 
         loss = self.beta_1 * mi_loss + self.beta_2 * kl_loss + self.beta_3 * sl_loss
 
@@ -342,15 +349,17 @@ class MITrainer(L.LightningModule):
             intended_a = batch["intended_action"]
             mae = torch.abs(pred_a - intended_a).mean().data.cpu().item()
             missalignment_mae = torch.abs(teacher_a - intended_a).mean().data.cpu().item()
+            intended_magnitude = intended_a.abs().mean()
         else:
             mae = 0.
             missalignment_mae = 0.
+            intended_magnitude = 0.
 
         stats = {
             "loss": loss.data.cpu().item(),
             "act_mae": mae,
             "missalignment_mae": missalignment_mae,
-            # "intended_magnitude": intended_a.abs().mean(),
+            "intended_magnitude": intended_magnitude,
             **mi_stats, **kl_stats, **sl_stats,
         }
         return loss, stats

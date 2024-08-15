@@ -1,4 +1,5 @@
 import os
+import pickle
 import wandb
 import torch
 import lightning as L
@@ -7,14 +8,13 @@ from pytorch_lightning.loggers import WandbLogger
 from configs import BaseConfig
 from lift.environments.gym_envs import NpGymEnv
 from lift.environments.emg_envs import EMGEnv
-from lift.environments.simulator import SimulatorFactory, NonParametricWeightedSimulator
+from lift.environments.simulator import SimulatorFactory
 from lift.environments.rollout import rollout
 from lift.teacher import load_teacher
 from lift.utils import normalize
 
 from lift.datasets import (
     get_samples_per_group,
-    weighted_per_person_augmentation,
     weighted_augmentation,
     load_all_mad_datasets, 
     mad_groupby_labels,
@@ -44,11 +44,7 @@ def validate(env, teacher, sim, encoder, mu, sd, logger):
         logger.log_metrics({"encoder_reward": mean_rwd})
     return data
 
-def train(emg_features, actions, model, logger, config: BaseConfig):
-    sl_data_dict = {
-        "emg_obs": emg_features,
-        "sl_act": actions,
-    }
+def train(sl_data_dict, model, logger, config: BaseConfig):
     train_dataloader, val_dataloader = get_dataloaders(
         data_dict=sl_data_dict,
         train_ratio=config.pretrain.train_ratio,
@@ -132,9 +128,6 @@ def load_data(config: BaseConfig, load_fake=False):
             verbose=False,
         )
 
-        # """DEBUG: sample only one window for each action"""
-        # p_windows, p_labels = get_samples_per_group(p_windows, p_labels, config, num_samples_per_group=1)
-
         p_actions = mad_labels_to_actions(
             p_labels, recording_strength=config.simulator.recording_strength,
         )
@@ -144,8 +137,8 @@ def load_data(config: BaseConfig, load_fake=False):
         else:
             p_features = compute_features(p_windows)
 
-        # get augmentations
         if config.pretrain.num_augmentation > 0:
+            # sample only one window for each action in augementation
             # this prevents augmentation to pick samples from the same action
             p_windows_aug, p_labels_aug = get_samples_per_group(p_windows, p_labels, 1)
             p_actions_aug = mad_labels_to_actions(
@@ -184,10 +177,12 @@ def main():
     # config.mi.beta_3 = beta_3
     L.seed_everything(config.seed)
     if config.use_wandb:
-        _ = wandb.init(project='lift', tags=['align_teacher', 'beta_sweep_generalization'])
+        _ = wandb.init(project='lift',
+                       config=config,
+                       tags=['align_teacher', 'beta_sweep_generalization'])
         # config = BaseConfig(**wandb.config)
         logger = WandbLogger()
-        wandb.config.update(config.model_dump())
+        # wandb.config.update(config.model_dump())
     else:
         logger = None
 
@@ -199,19 +194,12 @@ def main():
     # validation setup
     teacher = load_teacher(config)
     data_path = (config.mad_data_path / config.target_person / "training0").as_posix()
-    # FIXME implement rolling normalization in simulator
+
     sim = SimulatorFactory.create_class(
         data_path,
         config,
         return_features=True,
     )
-    """DEBUG: only one sample per action from one person"""
-    # sim = NonParametricWeightedSimulator(    
-    #     data_path,
-    #     config,
-    #     return_features=True,
-    #     # num_samples_per_group=1,
-    #     )
 
     env = NpGymEnv(
         "FetchReachDense-v2",
@@ -219,15 +207,29 @@ def main():
         cat_keys=config.teacher.env_cat_keys,
     )
 
+    # use pretrain beta parameters
+    config.mi.beta_1 = config.pretrain.beta_1
+    config.mi.beta_2 = config.pretrain.beta_2
+    config.mi.beta_3 = config.pretrain.beta_3
+
     trainer = MITrainer(config, env, supervise=True)
     
     # test once before train
     validate(env, teacher, sim, trainer.encoder, emg_mu, emg_sd, logger)
 
-    train(emg_features_norm, actions, trainer, logger, config)
+    sl_data_dict = {
+        "sl_emg_obs": emg_features_norm,
+        "sl_act": actions,
+    }
+    train(sl_data_dict, trainer, logger, config)
 
     # test once after train
     validate(env, teacher, sim, trainer.encoder, emg_mu, emg_sd, logger)
+
+    sl_data_dict['mu'] = emg_mu
+    sl_data_dict['sd'] = emg_sd
+    with open(os.path.join(config.data_path, "sl_dataset.pkl"), 'wb') as f:
+        pickle.dump(sl_data_dict, f)
 
     torch.save(trainer.encoder.state_dict(), config.models_path / "pretrain_mi_encoder.pt")
     torch.save(trainer.critic.state_dict(), config.models_path / "pretrain_mi_critic.pt")

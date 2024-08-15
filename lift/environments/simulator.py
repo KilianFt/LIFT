@@ -103,13 +103,14 @@ class NonParametricWeightedSimulator(Simulator):
             verbose=False,
         )
         if num_samples_per_group is not None:
-            person_windows, person_labels = get_samples_per_group(person_windows, person_labels, config, num_samples_per_group)
+            person_windows, person_labels = get_samples_per_group(person_windows, person_labels, num_samples_per_group)
 
         person_features = compute_features(person_windows, feature_list = ['MAV'])
         person_actions = mad_labels_to_actions(
             person_labels, recording_strength=config.simulator.recording_strength,
         )
-        self.interpolator = WeightedInterpolator(person_features, person_actions, k=config.simulator.k)
+        self.interpolator = WeightedInterpolator(person_features, person_actions,
+                                                 k=config.simulator.k, sample=config.simulator.sample)
 
     def __call__(self, actions):
         features = self.interpolator(actions)

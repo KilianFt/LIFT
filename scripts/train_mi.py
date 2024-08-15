@@ -1,6 +1,8 @@
+import os
 import pickle
 import wandb
 import torch
+import logging
 import numpy as np
 import lightning as L
 from pytorch_lightning.loggers import WandbLogger
@@ -14,6 +16,7 @@ from lift.environments.rollout import rollout
 from lift.teacher import load_teacher
 from lift.datasets import get_dataloaders
 from lift.controllers import MITrainer, EMGAgent
+from lift.utils import normalize
 
 
 def maybe_rollout(env: EMGEnv, policy: EMGAgent, config: BaseConfig, use_saved=True):
@@ -38,31 +41,54 @@ def maybe_rollout(env: EMGEnv, policy: EMGAgent, config: BaseConfig, use_saved=T
             pickle.dump(data, f)
     return data
 
-def validate(env, teacher, sim, encoder, logger):
+def append_sl_data(data, sl_data, config):
+    # sample indexes
+    data_len = data['act'].shape[0]
+    sl_data_len = sl_data['sl_act'].shape[0]
+    sl_idxs = torch.randint(0, sl_data_len, (data_len,))
+    data['sl_act'] = sl_data['sl_act'][sl_idxs]
+    data['sl_emg_obs'] = sl_data['sl_emg_obs'][sl_idxs]
+
+def validate_data(data, logger):
+    assert data["info"]["intended_action"].shape == data["act"].shape
+    mae = np.abs(data["info"]["intended_action"] - data["act"]).mean()
+    sum_rwd = data["rwd"].sum()
+    mean_rwd = data["rwd"].mean()
+    std_rwd = data["rwd"].std()
+    n_episodes = data["done"].sum()
+    logging.info(f"encoder reward mean: {mean_rwd:.4f}, std: {std_rwd:.4f}, mae: {mae:.4f}")
+    if logger is not None:
+        logger.log_metrics({"encoder_reward": mean_rwd,
+                            "encoder_reward_sum": sum_rwd,
+                            "n_episodes": n_episodes,
+                            "encoder_mae": mae})
+
+    return mean_rwd, std_rwd, mae
+
+def validate(env, teacher, sim, encoder, mu, sd, logger):
     emg_env = EMGEnv(env, teacher, sim)
-    agent = EMGAgent(encoder)
+    agent = EMGAgent(encoder, mu, sd)
     data = rollout(
         emg_env, 
         agent, 
-        n_steps=1000, 
+        n_steps=3000, 
+        sample_mean=True,
         terminate_on_done=False,
         reset_on_done=True,
     )
-    mean_rwd = data["rwd"].mean()
-    std_rwd = data["rwd"].std()
-    mae = np.abs(data["info"]["teacher_action"] - data["act"]).mean()
-
-    print(f"encoder reward mean: {mean_rwd:.4f}, std: {std_rwd:.4f}")
-    if logger is not None:
-        logger.log_metrics({"encoder_reward": mean_rwd, "encoder_mae": mae, "encoder_std": std_rwd})
-    return data
+    mean_rwd, std_rwd, mae = validate_data(data, logger)
+    return mean_rwd, std_rwd, mae
 
 def train(data, model, logger, config: BaseConfig):
     sl_data_dict = {
         "obs": data["obs"]["observation"],
         "emg_obs": data["obs"]["emg_observation"],
-        "act": data["info"]["teacher_action"], # privileged information for validation
+        "intended_action": data["info"]["intended_action"],
+        "sl_emg_obs": data["sl_emg_obs"],
+        "sl_act": data["sl_act"],
     }
+    print(sl_data_dict["emg_obs"].mean())
+    print(sl_data_dict["sl_emg_obs"].mean())
     train_dataloader, val_dataloader = get_dataloaders(
         data_dict=sl_data_dict,
         train_ratio=config.mi.train_ratio,
@@ -85,7 +111,7 @@ def train(data, model, logger, config: BaseConfig):
     )
 
 
-def main(kwargs):
+def main(kwargs=None):
     if kwargs is not None:
         config = BaseConfig(**kwargs)
     else:
@@ -120,29 +146,41 @@ def main(kwargs):
         cat_keys=config.teacher.env_cat_keys,
     )
 
-    # load bc encoder
-    bc_trainer = torch.load(config.models_path / "bc.pt")
-
     # init trainer
-    trainer = MITrainer(config, env, teacher)
-    trainer.encoder.load_state_dict(bc_trainer.encoder.state_dict())
+    pt_encoder_state_dict = torch.load(config.models_path / "pretrain_mi_encoder.pt")
+    pt_critic_state_dict = torch.load(config.models_path / "pretrain_mi_critic.pt")
+    
+    trainer = MITrainer(config, env, teacher, supervise=True)
+    trainer.encoder.load_state_dict(pt_encoder_state_dict)
+    trainer.critic.load_state_dict(pt_critic_state_dict)
+
+    with open(os.path.join(config.data_path, "sl_dataset.pkl"), 'rb') as f:
+        sl_data = pickle.load(f)
+    emg_mu = sl_data["mu"]
+    emg_sd = sl_data["sd"]
 
     # collect user data
     emg_env = EMGEnv(env, teacher, sim)
-    emg_policy = EMGAgent(trainer.encoder)
+    emg_policy = EMGAgent(trainer.encoder, emg_mu, emg_sd)
     data = maybe_rollout(emg_env, emg_policy, config, use_saved=False)
     mean_rwd = data["rwd"].mean()
     print("encoder_reward", mean_rwd)
     if logger is not None:
         logger.log_metrics({"encoder_reward": mean_rwd})
 
+    data["obs"]["emg_observation"] = normalize(torch.tensor(data["obs"]["emg_observation"], dtype=torch.float32),
+                                               emg_mu, emg_sd)
+
+    # append data with supervised data
+    append_sl_data(data, sl_data, config)
+
     # test once before train
-    validate(env, teacher, sim, trainer.encoder, logger)
+    validate(env, teacher, sim, trainer.encoder, emg_mu, emg_sd, logger)
 
     train(data, trainer, logger, config)
     
     # test once after train
-    validate(env, teacher, sim, trainer.encoder, logger)
+    validate(env, teacher, sim, trainer.encoder, emg_mu, emg_sd, logger)
 
     torch.save(trainer, config.models_path / 'mi.pt')
     wandb.finish()
