@@ -161,14 +161,14 @@ class BaseConfig(BaseModel):
     desired_mad_labels: list = [0, 1, 2, 3, 4, 5, 6]
 
     # user model
-    noise_range: list | None = [.8, .8]#[0., 1.] # noise added to teacher env
-    noise_slope_range: list | None = [0., 0.]#[0., 1.] # action dependent noise
-    alpha_range: list | None = [1., 1.]#[1., 3.] # ratio multiplied to teacher std
+    noise_range: list | None = [0., 1.] # noise added to teacher env
+    noise_slope_range: list | None = [0., 1.] # action dependent noise
+    alpha_range: list | None = [1., 3.] # ratio multiplied to teacher std
     alpha_apply_range: list | None = [0., 3.,] # goal dist range to apply alpha scaling
     noise_drift: list | None = None#[-0.1, 0.0] # [offset, std]
     alpha_drift: list | None = None#[-0.1, 0.0] # [-0.1, 0.2] # [offset, std]
     # what if user is biased?
-    user_bias: float | None = 0.4
+    user_bias: float | None = None
 
     seed: int = 1001
     num_workers: int = 7

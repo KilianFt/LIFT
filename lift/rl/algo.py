@@ -44,18 +44,31 @@ class AlgoBase(ABC):
             obs = obs["observation"]
             if not isinstance(obs, torch.Tensor):
                 obs = torch.from_numpy(obs).to(torch.float32)
-            obs = TensorDict({"observation": obs})#, [])
+            obs = TensorDict({"observation": obs})
 
         with torch.no_grad():
             act_dist = self.model.policy.get_dist(obs)
         return act_dist
     
     def sample_action(self, obs, sample_mean=False):
-        act_dist = self.get_action_dist(obs)
-        if sample_mean:
-            act = act_dist.loc
-        else:
-            act = act_dist.sample()
+        if not sample_mean:
+            raise NotImplementedError
+
+        if not isinstance(obs, TensorDict):
+            obs = obs["observation"]
+            if not isinstance(obs, torch.Tensor):
+                obs = torch.from_numpy(obs).to(torch.float32)
+            obs = TensorDict({"observation": obs})
+
+        out = self.model.policy(obs)
+        act = out["action"]
+        # FIXME this can predict values < -1 and > 1
+        # act_dist = self.get_action_dist(obs)
+        # if sample_mean:
+        #     act = act_dist.loc
+        # else:
+        #     act = act_dist.sample()
+
         return act.numpy()
     
     def _post_init_loss_module(self):
@@ -114,6 +127,7 @@ class AlgoBase(ABC):
             distribution_kwargs=dist_kwargs,
             default_interaction_type=InteractionType.RANDOM,
             return_log_prob=False,
+            safe=True, # this forces the actor to stay in action_spec bounds
         )
 
         # Define Critic Network
