@@ -307,7 +307,7 @@ class MITrainer(L.LightningModule):
         
         stats = {
             "sl_loss": loss.data.cpu().item(),
-            "mae": mae.data.cpu().item()
+            "sl_mae": mae.data.cpu().item()
         }
         return loss, stats
 
@@ -357,6 +357,7 @@ class MITrainer(L.LightningModule):
 
         stats = {
             "loss": loss.data.cpu().item(),
+            "kl_loss": kl_loss.cpu().item(),
             "act_mae": mae,
             "missalignment_mae": missalignment_mae,
             "intended_magnitude": intended_magnitude,

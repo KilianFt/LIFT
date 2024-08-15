@@ -118,7 +118,7 @@ class PretrainConfig(BaseModel):
 
 class MIConfig(BaseModel):
     beta_1: float = 1.0 # mi weight, use 0.5 for mse
-    beta_2: float = 0.1 # kl weight
+    beta_2: float = 0.01 # kl weight
     beta_3: float = 1.0 # sl weight
     kl_approx_method: str = "logp" # choices=[logp, abs, mse]
     num_neg_samples: int = 50
