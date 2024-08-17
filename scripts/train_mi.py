@@ -138,6 +138,7 @@ def main(kwargs=None):
         data_path,
         config,
         return_features=True,
+        num_samples_per_group=1,
     )
 
     env = NpGymEnv(

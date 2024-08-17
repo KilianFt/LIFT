@@ -67,16 +67,21 @@ class Simulator(abc.ABC):
 
 class SimulatorFactory:
     @staticmethod
-    def create_class(data_path, config, return_features=False):
+    def create_class(data_path, config, return_features=False, num_samples_per_group=None):
         if config.simulator.parametric == False:
             if config.simulator.interpolation == "weighted":
-                return NonParametricWeightedSimulator(data_path, config, return_features)
+                return NonParametricWeightedSimulator(data_path, config, return_features,
+                                                      num_samples_per_group=num_samples_per_group)
             elif config.simulator.interpolation == "random":
+                if num_samples_per_group is not None:
+                    raise NotImplementedError
                 return NonParametricSimulator(data_path, config, return_features)
         else:
             if not config.simulator.interpolation == "random":
                 raise NotImplementedError("Only random interpolation implemented \
                                           for non-parametric simulator")
+            if num_samples_per_group is not None:
+                raise NotImplementedError
             return ParametricSimulator(data_path, config, return_features)
 
 
