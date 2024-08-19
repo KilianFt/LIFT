@@ -385,7 +385,7 @@ class MITrainer(L.LightningModule):
         mi_loss, mi_stats = self.compute_mi_loss(x, z, x_neg)
         kl_loss, kl_stats = self.compute_kl_loss(z, z_dist, y=y)
         sl_loss, sl_stats = self.compute_sl_loss(z, y)
-        loss = self.beta_1 * mi_loss + self.beta_2 + kl_loss + self.beta_3 * sl_loss
+        loss = self.beta_1 * mi_loss + self.beta_2 * kl_loss + self.beta_3 * sl_loss
 
         with torch.no_grad():
             pred_a = z_dist.mode
@@ -412,7 +412,7 @@ class MITrainer(L.LightningModule):
         pt_mi_loss, pt_mi_stats = self.compute_mi_loss(pt_x, pt_z, x_neg)
         pt_kl_loss, pt_kl_stats = self.compute_kl_loss(pt_z, pt_z_dist, y=pt_y)
         pt_sl_loss, pt_sl_stats = self.compute_sl_loss(pt_z, pt_y)
-        pt_loss = self.beta_1 * pt_mi_loss + self.beta_2 + pt_kl_loss + self.beta_3 * pt_sl_loss
+        pt_loss = self.beta_1 * pt_mi_loss + self.beta_2 * pt_kl_loss + self.beta_3 * pt_sl_loss
 
         # compute ft loss
         z_dist = self.encoder.get_dist(x)
@@ -459,13 +459,6 @@ class MITrainer(L.LightningModule):
         else:
             loss, stats = self.compute_loss_ft_pt(batch)
         return loss, stats
-    
-    def training_step(self, batch, _):
-        loss, stats = self.compute_loss(batch)
-
-        for k, v in stats.items():
-            self.log(f"train/{k}", v)
-        return loss
     
     def training_step(self, batch, _):
         loss, stats = self.compute_loss(batch)
