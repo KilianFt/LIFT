@@ -175,8 +175,16 @@ class BCTrainer(L.LightningModule):
 
 class MITrainer(L.LightningModule):
     """Mutual information trainer"""
-    def __init__(self, config: BaseConfig, env: NpGymEnv, teacher: SAC | None = None, supervise: bool = False):
+    def __init__(
+        self, 
+        config: BaseConfig, 
+        env: NpGymEnv, 
+        teacher: SAC | None = None, 
+        pretrain: bool = False, 
+        supervise: bool = False,
+    ):
         super().__init__()
+        self.pretrain = pretrain
         self.supervise = supervise
         self.sl_sd = config.mi.sl_sd
         self.num_neg_samples = config.mi.num_neg_samples
@@ -184,6 +192,8 @@ class MITrainer(L.LightningModule):
         self.beta_1 = config.mi.beta_1
         self.beta_2 = config.mi.beta_2
         self.beta_3 = config.mi.beta_3
+        self.ft_weight = config.mi.ft_weight
+        self.pt_weight = config.mi.pt_weight
         self.kl_approx_method = config.mi.kl_approx_method
 
         assert self.kl_approx_method in ["logp", "abs", "mse"]
@@ -217,12 +227,10 @@ class MITrainer(L.LightningModule):
         else:
             self.teacher = None
     
-    def compute_mi_loss(self, x, z):
+    def compute_mi_loss(self, x, z, x_neg):
         """Compute infonce loss"""
         f = self.critic(torch.cat([x, z], dim=-1))
 
-        sample_idx_neg = torch.randint(len(x), size=(self.num_neg_samples,))
-        x_neg = x[sample_idx_neg]
         x_neg_ = x_neg.unsqueeze(0).repeat_interleave(len(x), dim=0)
         z_ = z.unsqueeze(1).repeat_interleave(len(x_neg), dim=1)
         f_neg_ = self.critic(torch.cat([x_neg_, z_], dim=-1))
@@ -242,9 +250,9 @@ class MITrainer(L.LightningModule):
         }
         return loss, stats
     
-    def compute_kl_loss(self, o, z, z_dist):
+    def compute_kl_loss(self, z, z_dist, o=None, y=None):
         """Compute sample based kl divergence from teacher"""
-        if isinstance(self.teacher, ProbabilisticActor):
+        if o is not None and isinstance(self.teacher, ProbabilisticActor):
             teacher_inputs = TensorDict({
                 "observation": o,
                 "action": z,
@@ -252,8 +260,14 @@ class MITrainer(L.LightningModule):
             with torch.no_grad():
                 teacher_dist = self.teacher.get_dist(teacher_inputs)
             log_prior = teacher_dist.log_prob(z)
+        elif y is not None:
+            # use true y as prior mean
+            teacher_dist = torch_dist.Normal(
+                y, 
+                torch.ones(1, device=z.device) * self.sl_sd,
+            )
+            log_prior = teacher_dist.log_prob(z).sum(-1)
         else:
-            # TODO this should be done with the supervised labels only, other for online
             teacher_dist = torch_dist.Normal(
                 torch.zeros(1, device=z.device), 
                 torch.ones(1, device=z.device),
@@ -281,6 +295,7 @@ class MITrainer(L.LightningModule):
             std_post = z_dist.sample((30,)).std(0).mean()
 
         stats = {
+            "kl_loss": kl.cpu().item(),
             "log_prior": log_prior.data.cpu().mean().item(),
             "log_post": log_post.data.cpu().mean().item(),
             "entropy": ent.data.cpu().mean().item(),
@@ -291,14 +306,11 @@ class MITrainer(L.LightningModule):
     
     def compute_sl_loss(self, z, y):
         """Compute supervised loss"""
-
-
-        if self.supervise:  # and y is not None:
-            # y_dist = torch_dist.Normal(z, torch.ones(1, device=z.device) * self.sl_sd)
-            # loss = -y_dist.log_prob(y).sum(-1).mean()
-            # loss = -teacher_dist.log_prob(y).sum(-1).mean()
-
-            loss = torch.pow(z - y, 2).mean()
+        if self.supervise:
+            y_dist = torch_dist.Normal(z, torch.ones(1, device=z.device) * self.sl_sd)
+            loss = -y_dist.log_prob(y).sum(-1).mean()
+            
+            # loss = torch.pow(z - y, 2).mean()
             # loss = nn.SmoothL1Loss().forward(z, y)
         else:
             loss = torch.zeros(1, device=z.device)
@@ -310,38 +322,112 @@ class MITrainer(L.LightningModule):
             "sl_mae": mae.data.cpu().item()
         }
         return loss, stats
+    
+    def get_neg_samples(self, x):
+        sample_idx_neg = torch.randint(len(x), size=(self.num_neg_samples,))
+        x_neg = x[sample_idx_neg]
+        return x_neg
+    
+    # def compute_loss(self, batch):
+    #     sl_x = batch["pt_emg_obs"]
+    #     sl_y = batch["pt_act"]
+    #     x = sl_x
+    #     o = None
 
-    def compute_loss(self, batch):
-        sl_x = batch["sl_emg_obs"]
-        sl_y = batch["sl_act"]
+    #     z_dist = self.encoder.get_dist(x)
+    #     z = z_dist.rsample()
 
-        if self.supervise:
-            x = sl_x
-        else:
-            x = batch["emg_obs"]
+    #     x_neg = self.get_neg_samples(x)
+    #     mi_loss, mi_stats = self.compute_mi_loss(x, z, x_neg)
+    #     kl_loss, kl_stats = self.compute_kl_loss(z, z_dist, y=sl_y)
 
-        if "obs" in batch.keys():
-            o = batch["obs"]
-        else:
-            o = None
+    #     # compute this on augmented supervised dataset
+    #     sl_loss, sl_stats = self.compute_sl_loss(z, sl_y)
+
+    #     loss = self.beta_1 * mi_loss + self.beta_2 * kl_loss + self.beta_3 * sl_loss
+
+    #     with torch.no_grad():
+    #         pred_a = z_dist.mode
+
+    #     if "intended_action" in batch.keys():
+    #         teacher_inputs = TensorDict({"observation": o})
+    #         with set_exploration_type(ExplorationType.MODE), torch.no_grad():
+    #             teacher_a = self.teacher(teacher_inputs)["action"]
+                
+    #         intended_a = batch["intended_action"]
+    #         mae = torch.abs(pred_a - intended_a).mean().data.cpu().item()
+    #         missalignment_mae = torch.abs(teacher_a - intended_a).mean().data.cpu().item()
+    #         intended_magnitude = intended_a.abs().mean()
+    #     else:
+    #         mae = 0.
+    #         missalignment_mae = 0.
+    #         intended_magnitude = 0.
+
+    #     stats = {
+    #         "loss": loss.data.cpu().item(),
+    #         "kl_loss": kl_loss.cpu().item(),
+    #         "act_mae": mae,
+    #         "missalignment_mae": missalignment_mae,
+    #         "intended_magnitude": intended_magnitude,
+    #         **mi_stats, **kl_stats, **sl_stats,
+    #     }
+    #     return loss, stats
+
+    def compute_loss_pt(self, batch):
+        """Pretrain loss"""
+        x = batch["pt_emg_obs"]
+        y = batch["pt_act"]
 
         z_dist = self.encoder.get_dist(x)
         z = z_dist.rsample()
+        
+        x_neg = self.get_neg_samples(x)
+        mi_loss, mi_stats = self.compute_mi_loss(x, z, x_neg)
+        kl_loss, kl_stats = self.compute_kl_loss(z, z_dist, y=y)
+        sl_loss, sl_stats = self.compute_sl_loss(z, y)
+        loss = self.beta_1 * mi_loss + self.beta_2 + kl_loss + self.beta_3 * sl_loss
 
-        mi_loss, mi_stats = self.compute_mi_loss(x, z)
-        kl_loss, kl_stats = self.compute_kl_loss(o, z, z_dist)
+        with torch.no_grad():
+            pred_a = z_dist.mode
+            mae = torch.abs(pred_a - y).mean().data.cpu().item()
+        
+        stats = {
+            "loss": loss.data.cpu().item(),
+            "act_mae": mae,
+            **mi_stats, **kl_stats, **sl_stats,
+        }
+        return loss, stats
+    
+    def compute_loss_ft_pt(self, batch):
+        """Pretrain and finetune loss"""
+        pt_x = batch["pt_emg_obs"]
+        pt_y = batch["pt_act"]
+        x = batch["emg_obs"]
+        o = batch["obs"]
+        x_neg = self.get_neg_samples(torch.cat([pt_x, x], dim=0)) # NOTE not super sure if should use the same negative samples for both pt and ft
+        
+        # compute pt loss
+        pt_z_dist = self.encoder.get_dist(pt_x)
+        pt_z = pt_z_dist.rsample()
+        pt_mi_loss, pt_mi_stats = self.compute_mi_loss(pt_x, pt_z, x_neg)
+        pt_kl_loss, pt_kl_stats = self.compute_kl_loss(pt_z, pt_z_dist, y=pt_y)
+        pt_sl_loss, pt_sl_stats = self.compute_sl_loss(pt_z, pt_y)
+        pt_loss = self.beta_1 * pt_mi_loss + self.beta_2 + pt_kl_loss + self.beta_3 * pt_sl_loss
 
-        # compute this on augmented supervised dataset
-        sl_z_dist = self.encoder.get_dist(sl_x)
-        sl_z = sl_z_dist.rsample()
-        sl_loss, sl_stats = self.compute_sl_loss(sl_z, sl_y)
+        # compute ft loss
+        z_dist = self.encoder.get_dist(x)
+        z = z_dist.rsample()
+        ft_mi_loss, ft_mi_stats = self.compute_mi_loss(x, z, x_neg)
+        ft_kl_loss, ft_kl_stats = self.compute_kl_loss(z, z_dist, o=o)
+        ft_loss = self.beta_1 * ft_mi_loss + self.beta_2 * ft_kl_loss
 
-        loss = self.beta_1 * mi_loss + self.beta_2 * kl_loss + self.beta_3 * sl_loss
+        # compute total loss
+        loss = self.ft_weight * ft_loss + self.pt_weight * pt_loss
 
         with torch.no_grad():
             pred_a = z_dist.mode
 
-        if "intended_action" in batch.keys():
+        if "intended_action" in batch.keys() and "obs" in batch.keys():
             teacher_inputs = TensorDict({"observation": o})
             with set_exploration_type(ExplorationType.MODE), torch.no_grad():
                 teacher_a = self.teacher(teacher_inputs)["action"]
@@ -355,15 +441,31 @@ class MITrainer(L.LightningModule):
             missalignment_mae = 0.
             intended_magnitude = 0.
 
+        pt_stats = {**pt_mi_stats, **pt_kl_stats, **pt_sl_stats}
+        pt_stats = {f"pt_{k}": v for k, v in pt_stats.items()}
+        ft_stats = {**ft_mi_stats, **ft_kl_stats}
         stats = {
             "loss": loss.data.cpu().item(),
-            "kl_loss": kl_loss.cpu().item(),
             "act_mae": mae,
             "missalignment_mae": missalignment_mae,
             "intended_magnitude": intended_magnitude,
-            **mi_stats, **kl_stats, **sl_stats,
+            **ft_stats, **pt_stats,
         }
         return loss, stats
+    
+    def compute_loss(self, batch):
+        if self.pretrain:
+            loss, stats = self.compute_loss_pt(batch)
+        else:
+            loss, stats = self.compute_loss_ft_pt(batch)
+        return loss, stats
+    
+    def training_step(self, batch, _):
+        loss, stats = self.compute_loss(batch)
+
+        for k, v in stats.items():
+            self.log(f"train/{k}", v)
+        return loss
     
     def training_step(self, batch, _):
         loss, stats = self.compute_loss(batch)

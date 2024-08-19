@@ -41,13 +41,41 @@ def maybe_rollout(env: EMGEnv, policy: EMGAgent, config: BaseConfig, use_saved=T
             pickle.dump(data, f)
     return data
 
-def append_sl_data(data, sl_data, config):
-    # sample indexes
-    data_len = data['act'].shape[0]
-    sl_data_len = sl_data['sl_act'].shape[0]
-    sl_idxs = torch.randint(0, sl_data_len, (data_len,))
-    data['sl_act'] = sl_data['sl_act'][sl_idxs]
-    data['sl_emg_obs'] = sl_data['sl_emg_obs'][sl_idxs]
+# def append_sl_data(data, sl_data, config):
+#     # sample indexes
+#     data_len = data['act'].shape[0]
+#     sl_data_len = sl_data['sl_act'].shape[0]
+#     sl_idxs = torch.randint(0, sl_data_len, (data_len,))
+#     data['sl_act'] = sl_data['sl_act'][sl_idxs]
+#     data['sl_emg_obs'] = sl_data['sl_emg_obs'][sl_idxs]
+
+def get_ft_data(data, emg_mu, emg_sd):
+    ft_data = {
+        "obs": data["obs"]["observation"],
+        "emg_obs": data["obs"]["emg_observation"],
+        "intended_action": data["info"]["intended_action"],
+    }
+    ft_data = {k: torch.from_numpy(v).to(torch.float32) for k, v in ft_data.items()}
+    ft_data["emg_obs"] = normalize(ft_data["emg_obs"], emg_mu, emg_sd)
+    return ft_data
+
+def combine_pt_ft_data(pt_data: dict, ft_data: dict):
+    """Upsample and combine pretrain and fine tuning data"""
+    pt_len = len(pt_data["pt_emg_obs"])
+    ft_len = len(ft_data["emg_obs"])
+
+    if pt_len >= ft_len:
+        idx = torch.randint(0, ft_len, (pt_len,))
+        data = pt_data
+        data["obs"] = ft_data["obs"][idx]
+        data["emg_obs"] = ft_data["emg_obs"][idx]
+        data["intended_action"] = ft_data["intended_action"][idx]
+    elif pt_len < ft_len:
+        idx = torch.randint(0, pt_len, (ft_len,))
+        data = ft_data
+        data["pt_emg_obs"] = pt_data["pt_emg_obs"][idx]
+        data["pt_act"] = pt_data["pt_act"][idx]
+    return data
 
 def validate_data(data, logger):
     assert data["info"]["intended_action"].shape == data["act"].shape
@@ -79,18 +107,18 @@ def validate(env, teacher, sim, encoder, mu, sd, logger):
     mean_rwd, std_rwd, mae = validate_data(data, logger)
     return mean_rwd, std_rwd, mae
 
-def train(data, model, logger, config: BaseConfig):
-    sl_data_dict = {
-        "obs": data["obs"]["observation"],
-        "emg_obs": data["obs"]["emg_observation"],
-        "intended_action": data["info"]["intended_action"],
-        "sl_emg_obs": data["sl_emg_obs"],
-        "sl_act": data["sl_act"],
-    }
-    print(sl_data_dict["emg_obs"].mean())
-    print(sl_data_dict["sl_emg_obs"].mean())
+def train(data_dict, model, logger, config: BaseConfig):
+    # sl_data_dict = {
+    #     "obs": data["obs"]["observation"],
+    #     "emg_obs": data["obs"]["emg_observation"],
+    #     "intended_action": data["info"]["intended_action"],
+    #     "sl_emg_obs": data["sl_emg_obs"],
+    #     "sl_act": data["sl_act"],
+    # }
+    # print(sl_data_dict["emg_obs"].mean())
+    # print(sl_data_dict["sl_emg_obs"].mean())
     train_dataloader, val_dataloader = get_dataloaders(
-        data_dict=sl_data_dict,
+        data_dict=data_dict,
         train_ratio=config.mi.train_ratio,
         batch_size=config.mi.batch_size,
         num_workers=config.num_workers,
@@ -151,14 +179,16 @@ def main(kwargs=None):
     pt_encoder_state_dict = torch.load(config.models_path / "pretrain_mi_encoder.pt")
     pt_critic_state_dict = torch.load(config.models_path / "pretrain_mi_critic.pt")
     
-    trainer = MITrainer(config, env, teacher, supervise=True)
+    trainer = MITrainer(config, env, teacher, pretrain=False, supervise=True)
     trainer.encoder.load_state_dict(pt_encoder_state_dict)
     trainer.critic.load_state_dict(pt_critic_state_dict)
 
-    with open(os.path.join(config.data_path, "sl_dataset.pkl"), 'rb') as f:
-        sl_data = pickle.load(f)
-    emg_mu = sl_data["mu"]
-    emg_sd = sl_data["sd"]
+    with open(os.path.join(config.data_path, "pt_dataset.pkl"), 'rb') as f:
+        pt_data = pickle.load(f)
+    emg_mu = pt_data["mu"]
+    emg_sd = pt_data["sd"]
+    pt_data.pop("mu", None)
+    pt_data.pop("sd", None)
 
     # collect user data
     emg_env = EMGEnv(env, teacher, sim)
@@ -169,11 +199,13 @@ def main(kwargs=None):
     if logger is not None:
         logger.log_metrics({"encoder_reward": mean_rwd})
 
-    data["obs"]["emg_observation"] = normalize(torch.tensor(data["obs"]["emg_observation"], dtype=torch.float32),
-                                               emg_mu, emg_sd)
-
     # append data with supervised data
-    append_sl_data(data, sl_data, config)
+    ft_data = get_ft_data(data, emg_mu, emg_sd)
+    data = combine_pt_ft_data(pt_data, ft_data)
+
+    print("data shapes", {k: v.shape for k, v in data.items()})
+    print("pt_emg_obs mean", data["pt_emg_obs"].mean())
+    print("emg_obs mean", data["emg_obs"].mean())
 
     # test once before train
     validate(env, teacher, sim, trainer.encoder, emg_mu, emg_sd, logger)

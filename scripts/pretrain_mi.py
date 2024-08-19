@@ -213,24 +213,24 @@ def main():
     config.mi.beta_2 = config.pretrain.beta_2
     config.mi.beta_3 = config.pretrain.beta_3
 
-    trainer = MITrainer(config, env, supervise=True)
+    trainer = MITrainer(config, env, pretrain=True, supervise=True)
     
     # test once before train
     validate(env, teacher, sim, trainer.encoder, emg_mu, emg_sd, logger)
 
-    sl_data_dict = {
-        "sl_emg_obs": emg_features_norm,
-        "sl_act": actions,
+    pt_data_dict = {
+        "pt_emg_obs": emg_features_norm,
+        "pt_act": actions,
     }
-    train(sl_data_dict, trainer, logger, config)
+    train(pt_data_dict, trainer, logger, config)
 
     # test once after train
     validate(env, teacher, sim, trainer.encoder, emg_mu, emg_sd, logger)
 
-    sl_data_dict['mu'] = emg_mu
-    sl_data_dict['sd'] = emg_sd
-    with open(os.path.join(config.data_path, "sl_dataset.pkl"), 'wb') as f:
-        pickle.dump(sl_data_dict, f)
+    pt_data_dict['mu'] = emg_mu
+    pt_data_dict['sd'] = emg_sd
+    with open(os.path.join(config.data_path, "pt_dataset.pkl"), 'wb') as f:
+        pickle.dump(pt_data_dict, f)
 
     torch.save(trainer.encoder.state_dict(), config.models_path / "pretrain_mi_encoder.pt")
     torch.save(trainer.critic.state_dict(), config.models_path / "pretrain_mi_critic.pt")
