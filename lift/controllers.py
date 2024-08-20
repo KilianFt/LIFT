@@ -327,51 +327,6 @@ class MITrainer(L.LightningModule):
         sample_idx_neg = torch.randint(len(x), size=(self.num_neg_samples,))
         x_neg = x[sample_idx_neg]
         return x_neg
-    
-    # def compute_loss(self, batch):
-    #     sl_x = batch["pt_emg_obs"]
-    #     sl_y = batch["pt_act"]
-    #     x = sl_x
-    #     o = None
-
-    #     z_dist = self.encoder.get_dist(x)
-    #     z = z_dist.rsample()
-
-    #     x_neg = self.get_neg_samples(x)
-    #     mi_loss, mi_stats = self.compute_mi_loss(x, z, x_neg)
-    #     kl_loss, kl_stats = self.compute_kl_loss(z, z_dist, y=sl_y)
-
-    #     # compute this on augmented supervised dataset
-    #     sl_loss, sl_stats = self.compute_sl_loss(z, sl_y)
-
-    #     loss = self.beta_1 * mi_loss + self.beta_2 * kl_loss + self.beta_3 * sl_loss
-
-    #     with torch.no_grad():
-    #         pred_a = z_dist.mode
-
-    #     if "intended_action" in batch.keys():
-    #         teacher_inputs = TensorDict({"observation": o})
-    #         with set_exploration_type(ExplorationType.MODE), torch.no_grad():
-    #             teacher_a = self.teacher(teacher_inputs)["action"]
-                
-    #         intended_a = batch["intended_action"]
-    #         mae = torch.abs(pred_a - intended_a).mean().data.cpu().item()
-    #         missalignment_mae = torch.abs(teacher_a - intended_a).mean().data.cpu().item()
-    #         intended_magnitude = intended_a.abs().mean()
-    #     else:
-    #         mae = 0.
-    #         missalignment_mae = 0.
-    #         intended_magnitude = 0.
-
-    #     stats = {
-    #         "loss": loss.data.cpu().item(),
-    #         "kl_loss": kl_loss.cpu().item(),
-    #         "act_mae": mae,
-    #         "missalignment_mae": missalignment_mae,
-    #         "intended_magnitude": intended_magnitude,
-    #         **mi_stats, **kl_stats, **sl_stats,
-    #     }
-    #     return loss, stats
 
     def compute_loss_pt(self, batch):
         """Pretrain loss"""
@@ -385,7 +340,7 @@ class MITrainer(L.LightningModule):
         mi_loss, mi_stats = self.compute_mi_loss(x, z, x_neg)
         kl_loss, kl_stats = self.compute_kl_loss(z, z_dist, y=y)
         sl_loss, sl_stats = self.compute_sl_loss(z, y)
-        loss = self.beta_1 * mi_loss + self.beta_2 + kl_loss + self.beta_3 * sl_loss
+        loss = self.beta_1 * mi_loss + self.beta_2 * kl_loss + self.beta_3 * sl_loss
 
         with torch.no_grad():
             pred_a = z_dist.mode
@@ -412,7 +367,7 @@ class MITrainer(L.LightningModule):
         pt_mi_loss, pt_mi_stats = self.compute_mi_loss(pt_x, pt_z, x_neg)
         pt_kl_loss, pt_kl_stats = self.compute_kl_loss(pt_z, pt_z_dist, y=pt_y)
         pt_sl_loss, pt_sl_stats = self.compute_sl_loss(pt_z, pt_y)
-        pt_loss = self.beta_1 * pt_mi_loss + self.beta_2 + pt_kl_loss + self.beta_3 * pt_sl_loss
+        pt_loss = self.beta_1 * pt_mi_loss + self.beta_2 * pt_kl_loss + self.beta_3 * pt_sl_loss
 
         # compute ft loss
         z_dist = self.encoder.get_dist(x)
