@@ -111,8 +111,8 @@ class PretrainConfig(BaseModel):
     train_ratio: float = 0.8
     batch_size: int = 512
     lr: float = 3.0e-4
-    beta_1: float = .005 # mi weight, use 0.5 for mse
-    beta_2: float = 0.0 # kl weight
+    beta_1: float = 1.0 # mi weight, use 0.5 for mse
+    beta_2: float = 0.2 # kl weight
     beta_3: float = 1.0 # sl weight
 
 
@@ -147,7 +147,7 @@ class BaseConfig(BaseModel):
     models_path: PosixPath = ROOT_PATH / "models"
     rollout_data_path: PosixPath = ROOT_PATH / "datasets" / "rollouts"
     results_path: PosixPath = ROOT_PATH / "results"
-    target_person: str = "Female0"
+    target_person: str = "Female1"
     
     # wandb
     use_wandb: bool = True

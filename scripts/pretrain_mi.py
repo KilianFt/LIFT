@@ -2,6 +2,7 @@ import os
 import pickle
 import wandb
 import torch
+import numpy as np
 import lightning as L
 from pytorch_lightning.loggers import WandbLogger
 
@@ -39,9 +40,11 @@ def validate(env, teacher, sim, encoder, mu, sd, logger):
     )
     mean_rwd = data["rwd"].mean()
     std_rwd = data["rwd"].std()
-    print(f"encoder reward mean: {mean_rwd:.4f}, std: {std_rwd:.4f}")
+    mae = np.abs(data["info"]["intended_action"] - data["act"]).mean()
+    print(f"encoder reward mean: {mean_rwd:.4f}, std: {std_rwd:.4f}, mae: {mae:.4f}")
     if logger is not None:
         logger.log_metrics({"encoder_reward": mean_rwd})
+        logger.log_metrics({"encoder_mae": mae})
     return data
 
 def train(sl_data_dict, model, logger, config: BaseConfig):
@@ -214,6 +217,12 @@ def main():
     config.mi.beta_3 = config.pretrain.beta_3
 
     trainer = MITrainer(config, env, pretrain=True, supervise=True)
+
+    """DEBUG check model acc"""
+    # pt_encoder_state_dict = torch.load(config.models_path / "pretrain_mi_encoder.pt")
+    # pt_critic_state_dict = torch.load(config.models_path / "pretrain_mi_critic.pt")
+    # trainer.encoder.load_state_dict(pt_encoder_state_dict)
+    # trainer.critic.load_state_dict(pt_critic_state_dict)
     
     # test once before train
     validate(env, teacher, sim, trainer.encoder, emg_mu, emg_sd, logger)
@@ -222,6 +231,11 @@ def main():
         "pt_emg_obs": emg_features_norm,
         "pt_act": actions,
     }
+
+    """DEBUG check model acc"""
+    # trainer.encoder()
+    # pred = trainer.encoder.get_dist(emg_features_norm).mode
+
     train(pt_data_dict, trainer, logger, config)
 
     # test once after train
