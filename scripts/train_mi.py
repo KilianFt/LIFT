@@ -212,10 +212,7 @@ def main(kwargs=None):
     emg_env = EMGEnv(env, teacher, sim)
     emg_policy = EMGAgent(trainer.encoder, emg_mu, emg_sd)
     data = maybe_rollout(emg_env, emg_policy, config, use_saved=False)
-    mean_rwd = data["rwd"].mean()
-    print("encoder_reward", mean_rwd)
-    if logger is not None:
-        logger.log_metrics({"encoder_reward": mean_rwd})
+    validate_data(data, logger)
 
     # append data with supervised data
     ft_data = get_ft_data(data, emg_mu, emg_sd)

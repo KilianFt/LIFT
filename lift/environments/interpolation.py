@@ -79,7 +79,7 @@ class WeightedInterpolator:
             if self.sample:
                 indices = torch.multinomial(unique_weights, self.k, replacement=False)
             else:
-                indices = torch.topk(unique_weights, k=5, dim=1).indices
+                indices = torch.topk(unique_weights, k=self.k, dim=1).indices
 
             sampled_indices = torch.tensor([[random.choice(self.u_act_to_actions[val.item()]) for val in row] for row in indices])
 

@@ -98,12 +98,12 @@ class SimulatorConfig(BaseModel):
     base_noise: float = 0.005
     n_bursts: int = 1
     recording_strength: float = 0.8
-    k: int | None = 5 # number of samples considered in weighted simulator
+    k: int | None = 3 # number of samples considered in weighted simulator
     sample: bool = False
 
 
 class PretrainConfig(BaseModel):
-    target_std: float = 0.5
+    target_std: float = 0.5 # only used in BCTrainer
     epochs: int = 50
     num_augmentation: int = 1_000
     augmentation_distribution: str = "uniform" # choices=["uniform", "normal"]

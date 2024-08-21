@@ -2,6 +2,7 @@ import os
 import pickle
 import wandb
 import torch
+import numpy as np
 import lightning as L
 from pytorch_lightning.loggers import WandbLogger
 
@@ -37,11 +38,18 @@ def validate(env, teacher, sim, encoder, mu, sd, logger):
         terminate_on_done=False,
         reset_on_done=True,
     )
+    assert data["info"]["intended_action"].shape == data["act"].shape
+    mae = np.abs(data["info"]["intended_action"] - data["act"]).mean()
+    sum_rwd = data["rwd"].sum()
     mean_rwd = data["rwd"].mean()
     std_rwd = data["rwd"].std()
-    print(f"encoder reward mean: {mean_rwd:.4f}, std: {std_rwd:.4f}")
+    n_episodes = data["done"].sum()
+    print(f"encoder reward mean: {mean_rwd:.4f}, std: {std_rwd:.4f}, mae: {mae:.4f}")
     if logger is not None:
-        logger.log_metrics({"encoder_reward": mean_rwd})
+        logger.log_metrics({"encoder_reward": mean_rwd,
+                            "encoder_reward_sum": sum_rwd,
+                            "n_episodes": n_episodes,
+                            "encoder_mae": mae})
     return data
 
 def train(sl_data_dict, model, logger, config: BaseConfig):
