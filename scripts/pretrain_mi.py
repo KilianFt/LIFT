@@ -108,12 +108,14 @@ def load_data(config: BaseConfig, load_fake=False):
         return load_fake_data(config)
 
     all_people_list = [f"Female{i}" for i in range(10)] + [f"Male{i}" for i in range(16)]
-    people_list = [p for p in all_people_list if not p == config.target_person]
+    # people_list = [p for p in all_people_list if not p == config.target_person]
 
-    all_features = None
-    all_actions = None
+    train_features = None
+    train_actions = None
+    val_features = None
+    val_actions = None
 
-    for p in people_list:
+    for p in all_people_list:
         other_list = [o_p for o_p in all_people_list if not o_p == p]
 
         p_windows, p_labels, _ = load_all_mad_datasets(
@@ -140,12 +142,13 @@ def load_data(config: BaseConfig, load_fake=False):
         if config.pretrain.num_augmentation > 0:
             # sample only one window for each action in augementation
             # this prevents augmentation to pick samples from the same action
-            p_windows_aug, p_labels_aug = get_samples_per_group(p_windows, p_labels, 1)
-            p_actions_aug = mad_labels_to_actions(
-                p_labels_aug, recording_strength=config.simulator.recording_strength,
-            )
-            sample_features, sample_actions = load_augmentation(p_windows_aug, p_labels_aug,
-                                                                p_actions_aug, config)
+            # p_windows_aug, p_labels_aug = get_samples_per_group(p_windows, p_labels, 1)
+            # p_actions_aug = mad_labels_to_actions(
+            #     p_labels_aug, recording_strength=config.simulator.recording_strength,
+            # )
+            # sample_features, sample_actions = load_augmentation(p_windows_aug, p_labels_aug,
+            #                                                     p_actions_aug, config)
+            sample_features, sample_actions = load_augmentation(p_windows, p_labels, p_actions, config)
 
             if config.pretrain.train_subset == "interpolation":
                 features = sample_features
@@ -156,50 +159,66 @@ def load_data(config: BaseConfig, load_fake=False):
         else:
             features, actions = p_features, p_actions
 
-        # append to dataset
-        if all_features is None:
-            all_features = features
-            all_actions = actions
+        # hold out n people for validation, including target_person
+        if p in [config.target_person] + config.val_people:
+            if val_features is None:
+                val_features = features
+                val_actions = actions
+            else:
+                val_features = torch.cat([val_features, features], dim=0)
+                val_actions = torch.cat([val_actions, actions], dim=0)
         else:
-            all_features = torch.cat([all_features, features], dim=0)
-            all_actions = torch.cat([all_actions, actions], dim=0)
+            if train_features is None:
+                train_features = features
+                train_actions = actions
+            else:
+                train_features = torch.cat([train_features, features], dim=0)
+                train_actions = torch.cat([train_actions, actions], dim=0)
 
-    print(all_features.shape)
+    print(f"train size: {train_features.shape}, val size: {val_features.shape}")
 
-    return all_features, all_actions
+    # normalize data
+    emg_mu = train_features.mean(0)
+    emg_sd = train_features.std(0)
+    train_features_norm = normalize(train_features, emg_mu, emg_sd)
+    val_features_norm = normalize(val_features, emg_mu, emg_sd)
+
+    pt_data_dict = {
+        "train": {
+            "pt_emg_obs": train_features_norm,
+            "pt_act": train_actions,
+            },
+        "val": {
+            "pt_emg_obs": val_features_norm,
+            "pt_act": val_actions,
+        },
+        "mu": emg_mu,
+        "sd": emg_sd,
+    }
+    return pt_data_dict
 
 
-# def main(beta_1, beta_2, beta_3):
 def main():
     config = BaseConfig()
-    # config.mi.beta_1 = beta_1
-    # config.mi.beta_2 = beta_2
-    # config.mi.beta_3 = beta_3
-    L.seed_everything(config.seed)
     if config.use_wandb:
         _ = wandb.init(project='lift',
-                       config=config,
                        tags=['align_teacher', 'beta_sweep_generalization'])
-        # config = BaseConfig(**wandb.config)
+        config = BaseConfig(**wandb.config)
         logger = WandbLogger()
-        # wandb.config.update(config.model_dump())
+        wandb.config.update(config.model_dump())
     else:
         logger = None
 
-    emg_features, actions, = load_data(config)
-    emg_mu = emg_features.mean(0)
-    emg_sd = emg_features.std(0)
-    emg_features_norm = normalize(emg_features, emg_mu, emg_sd)
-    
-    # validation setup
+    L.seed_everything(config.seed)
+
+    pt_data_dict = load_data(config)
     teacher = load_teacher(config)
     data_path = (config.mad_data_path / config.target_person / "training0").as_posix()
-
     sim = SimulatorFactory.create_class(
         data_path,
         config,
         return_features=True,
-        num_samples_per_group=1,
+        # num_samples_per_group=1,
     )
 
     env = NpGymEnv(
@@ -208,27 +227,17 @@ def main():
         cat_keys=config.teacher.env_cat_keys,
     )
 
-    # use pretrain beta parameters
-    config.mi.beta_1 = config.pretrain.beta_1
-    config.mi.beta_2 = config.pretrain.beta_2
-    config.mi.beta_3 = config.pretrain.beta_3
-
     trainer = MITrainer(config, env, pretrain=True, supervise=True)
     
     # test once before train
-    validate(env, teacher, sim, trainer.encoder, emg_mu, emg_sd, logger)
+    validate(env, teacher, sim, trainer.encoder, pt_data_dict["mu"], pt_data_dict["sd"], logger)
 
-    pt_data_dict = {
-        "pt_emg_obs": emg_features_norm,
-        "pt_act": actions,
-    }
     train(pt_data_dict, trainer, logger, config)
 
     # test once after train
-    validate(env, teacher, sim, trainer.encoder, emg_mu, emg_sd, logger)
+    validate(env, teacher, sim, trainer.encoder, pt_data_dict["mu"], pt_data_dict["sd"], logger)
 
-    pt_data_dict['mu'] = emg_mu
-    pt_data_dict['sd'] = emg_sd
+    # save dataset and pretrained model
     with open(os.path.join(config.data_path, "pt_dataset.pkl"), 'wb') as f:
         pickle.dump(pt_data_dict, f)
 
@@ -239,12 +248,4 @@ def main():
 
 
 if __name__ == "__main__":
-    # import numpy as np
-    # from itertools import product
-
-    # betas_space = np.linspace(0.1,1,3)
-
-    # for b1, b2, b3 in product(betas_space, betas_space, betas_space):
-    #     main(b1, b2, b3)
-
     main()

@@ -12,6 +12,8 @@ from torch.nn.utils.rnn import pad_sequence
 from libemg.feature_extractor import FeatureExtractor
 from sklearn.preprocessing import LabelEncoder
 
+from lift.environments.interpolation import WeightedInterpolator
+
 class EMGSLDataset(Dataset):
     """Supervised learning dataset"""
     def __init__(self, data_dict):
@@ -48,45 +50,6 @@ class EMGSeqDataset(Dataset):
         out = np.concatenate([obs, act], axis=-1)
         out = torch.from_numpy(out).to(torch.float32)
         return out
-
-class WeightedInterpolator:
-    def __init__(self, features, actions, k=None, sample=False):
-        self.features = features
-        self.actions = actions
-        self.epsilon = 1e-5
-        self.k = k
-        self.sample = sample
-
-    def __call__(self, new_actions):
-        if not isinstance(new_actions, torch.Tensor):
-            new_actions = torch.tensor(new_actions, dtype=torch.float32)
-        # Step 1: Calculate distances for each new action
-        # This results in a (batch_size, num_samples) distance matrix
-        distances = torch.norm(self.actions - new_actions[:, None, :], dim=2)
-
-        # Step 2: Compute interpolation weights
-        weights = 1 / (distances + self.epsilon)
-        weights /= weights.sum(axis=1, keepdims=True)
-
-        # Step 4: select k elements of the weights, set rest to 0
-        if self.k is not None:
-            # TODO find a way to make sure that each sample belongs to a different action
-            if self.sample:
-                indices = torch.multinomial(weights, self.k, replacement=False)
-            else:
-                indices = torch.topk(weights, k=self.k, dim=1).indices
-
-            mask = torch.zeros_like(weights)
-            mask.scatter_(1, indices, 1)
-
-            sampled_weights = weights * mask
-            sampled_weights /= sampled_weights.sum(dim=1, keepdim=True)
-
-            weights = sampled_weights
-
-        # Step 3: Interpolate features
-        interpolated_features_batch = torch.tensordot(weights, self.features, dims=([1],[0]))
-        return interpolated_features_batch
 
 
 def get_samples_per_group(windows, labels, num_samples_per_group=1):
@@ -132,17 +95,23 @@ def seq_collate_fn(batch):
 
 """TODO: figure out better way to handle bc and sequence data"""
 def get_dataloaders(data_dict, is_seq=False, train_ratio=0.8, batch_size=32, num_workers=4):
-    if not is_seq:
-        dataset = EMGSLDataset(data_dict)
+
+    if "val" in data_dict.keys():
+        train_dataset = EMGSLDataset(data_dict["train"])
+        val_dataset = EMGSLDataset(data_dict["val"])
         collate_fn = None
     else:
-        seq_data = format_seq_data(data_dict)
-        dataset = EMGSeqDataset(seq_data)
-        collate_fn = seq_collate_fn
+        if not is_seq:
+            dataset = EMGSLDataset(data_dict)
+            collate_fn = None
+        else:
+            seq_data = format_seq_data(data_dict)
+            dataset = EMGSeqDataset(seq_data)
+            collate_fn = seq_collate_fn
 
-    train_size = int(train_ratio * len(dataset))
-    val_size = len(dataset) - train_size
-    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+        train_size = int(train_ratio * len(dataset))
+        val_size = len(dataset) - train_size
+        train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
     train_dataloader = DataLoader(
         train_dataset, 

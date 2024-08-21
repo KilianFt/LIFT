@@ -195,6 +195,7 @@ class MITrainer(L.LightningModule):
         self.ft_weight = config.mi.ft_weight
         self.pt_weight = config.mi.pt_weight
         self.kl_approx_method = config.mi.kl_approx_method
+        self.only_copy_teacher = config.mi.only_copy_teacher
 
         assert self.kl_approx_method in ["logp", "abs", "mse"]
 
@@ -419,34 +420,37 @@ class MITrainer(L.LightningModule):
         z = z_dist.rsample()
         ft_mi_loss, ft_mi_stats = self.compute_mi_loss(x, z, x_neg)
         ft_kl_loss, ft_kl_stats = self.compute_kl_loss(z, z_dist, o=o)
-        ft_loss = self.beta_1 * ft_mi_loss + self.beta_2 * ft_kl_loss
+
+        # calculate sl loss for stats and compare to copying teacher
+        teacher_inputs = TensorDict({"observation": o,})
+        with set_exploration_type(ExplorationType.MODE), torch.no_grad():
+            ft_teacher_y = self.teacher(teacher_inputs)["action"]
+        ft_sl_loss, ft_sl_stats = self.compute_sl_loss(z, ft_teacher_y)
+
+        if self.only_copy_teacher:
+            # only sl on teacher for comparison
+            ft_loss = self.beta_3 * ft_sl_loss
+        else:
+            # default fine-tune loss
+            ft_loss = self.beta_1 * ft_mi_loss + self.beta_2 * ft_kl_loss
 
         # compute total loss
         loss = self.ft_weight * ft_loss + self.pt_weight * pt_loss
 
-        with torch.no_grad():
-            pred_a = z_dist.mode
-
-        if "intended_action" in batch.keys() and "obs" in batch.keys():
-            teacher_inputs = TensorDict({"observation": o})
-            with set_exploration_type(ExplorationType.MODE), torch.no_grad():
-                teacher_a = self.teacher(teacher_inputs)["action"]
-                
-            intended_a = batch["intended_action"]
-            mae = torch.abs(pred_a - intended_a).mean().data.cpu().item()
-            missalignment_mae = torch.abs(teacher_a - intended_a).mean().data.cpu().item()
-            intended_magnitude = intended_a.abs().mean()
-        else:
-            mae = 0.
-            missalignment_mae = 0.
-            intended_magnitude = 0.
+        # calculate stats related to the intended action by the user
+        ft_intended_y = batch["intended_action"]
+        intended_mae = torch.abs(z - ft_intended_y).mean().data.cpu().item()
+        missalignment_mae = torch.abs(ft_teacher_y - ft_intended_y).mean().data.cpu().item()
+        intended_magnitude = ft_intended_y.abs().mean()
 
         pt_stats = {**pt_mi_stats, **pt_kl_stats, **pt_sl_stats}
         pt_stats = {f"pt_{k}": v for k, v in pt_stats.items()}
-        ft_stats = {**ft_mi_stats, **ft_kl_stats}
+        ft_stats = {**ft_mi_stats, **ft_kl_stats, **ft_sl_stats}
         stats = {
             "loss": loss.data.cpu().item(),
-            "act_mae": mae,
+            "pt_loss": pt_loss.cpu().item(),
+            "ft_loss": ft_loss.cpu().item(),
+            "act_mae": intended_mae,
             "missalignment_mae": missalignment_mae,
             "intended_magnitude": intended_magnitude,
             **ft_stats, **pt_stats,

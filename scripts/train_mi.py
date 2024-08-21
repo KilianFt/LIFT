@@ -61,20 +61,40 @@ def get_ft_data(data, emg_mu, emg_sd):
 
 def combine_pt_ft_data(pt_data: dict, ft_data: dict):
     """Upsample and combine pretrain and fine tuning data"""
-    pt_len = len(pt_data["pt_emg_obs"])
-    ft_len = len(ft_data["emg_obs"])
+    if "val" in pt_data.keys():
+        pt_train_len = len(pt_data["train"]["pt_emg_obs"])
+        pt_val_len = len(pt_data["val"]["pt_emg_obs"])
+        pt_len = pt_train_len + pt_val_len
+        ft_len = len(ft_data["emg_obs"])
 
-    if pt_len >= ft_len:
-        idx = torch.randint(0, ft_len, (pt_len,))
-        data = pt_data
-        data["obs"] = ft_data["obs"][idx]
-        data["emg_obs"] = ft_data["emg_obs"][idx]
-        data["intended_action"] = ft_data["intended_action"][idx]
-    elif pt_len < ft_len:
-        idx = torch.randint(0, pt_len, (ft_len,))
-        data = ft_data
-        data["pt_emg_obs"] = pt_data["pt_emg_obs"][idx]
-        data["pt_act"] = pt_data["pt_act"][idx]
+        if pt_len >= ft_len:
+            idx_train = torch.randint(0, ft_len, (pt_train_len,))
+            idx_val = torch.randint(0, ft_len, (pt_val_len,))
+            data = pt_data
+            data["train"]["obs"] = ft_data["obs"][idx_train]
+            data["train"]["emg_obs"] = ft_data["emg_obs"][idx_train]
+            data["train"]["intended_action"] = ft_data["intended_action"][idx_train]
+            data["val"]["obs"] = ft_data["obs"][idx_val]
+            data["val"]["emg_obs"] = ft_data["emg_obs"][idx_val]
+            data["val"]["intended_action"] = ft_data["intended_action"][idx_val]
+        elif pt_len < ft_len:
+            idx = torch.randint(0, pt_len, (ft_len,))
+            raise NotImplementedError
+    else:
+        pt_len = len(pt_data["pt_emg_obs"])
+        ft_len = len(ft_data["emg_obs"])
+
+        if pt_len >= ft_len:
+            idx = torch.randint(0, ft_len, (pt_len,))
+            data = pt_data
+            data["obs"] = ft_data["obs"][idx]
+            data["emg_obs"] = ft_data["emg_obs"][idx]
+            data["intended_action"] = ft_data["intended_action"][idx]
+        elif pt_len < ft_len:
+            idx = torch.randint(0, pt_len, (ft_len,))
+            data = ft_data
+            data["pt_emg_obs"] = pt_data["pt_emg_obs"][idx]
+            data["pt_act"] = pt_data["pt_act"][idx]
     return data
 
 def validate_data(data, logger):
@@ -115,8 +135,6 @@ def train(data_dict, model, logger, config: BaseConfig):
     #     "sl_emg_obs": data["sl_emg_obs"],
     #     "sl_act": data["sl_act"],
     # }
-    # print(sl_data_dict["emg_obs"].mean())
-    # print(sl_data_dict["sl_emg_obs"].mean())
     train_dataloader, val_dataloader = get_dataloaders(
         data_dict=data_dict,
         train_ratio=config.mi.train_ratio,
@@ -166,7 +184,7 @@ def main(kwargs=None):
         data_path,
         config,
         return_features=True,
-        num_samples_per_group=1,
+        # num_samples_per_group=1,
     )
 
     env = NpGymEnv(
@@ -203,9 +221,9 @@ def main(kwargs=None):
     ft_data = get_ft_data(data, emg_mu, emg_sd)
     data = combine_pt_ft_data(pt_data, ft_data)
 
-    print("data shapes", {k: v.shape for k, v in data.items()})
-    print("pt_emg_obs mean", data["pt_emg_obs"].mean())
-    print("emg_obs mean", data["emg_obs"].mean())
+    print("data shapes", {k: v.shape for k, v in data["train"].items()})
+    print("pt_emg_obs mean", data["train"]["pt_emg_obs"].mean())
+    print("emg_obs mean", data["train"]["emg_obs"].mean())
 
     # test once before train
     validate(env, teacher, sim, trainer.encoder, emg_mu, emg_sd, logger)

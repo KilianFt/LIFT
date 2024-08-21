@@ -84,9 +84,9 @@ class OfflineRLConfig(BaseModel):
 
 
 class EncoderConfig(BaseModel):    
-    hidden_size: int = 512
-    n_layers: int = 4
-    dropout: float = 0.
+    hidden_size: int = 256
+    n_layers: int = 3
+    dropout: float = 0.1
 
 
 class SimulatorConfig(BaseModel):
@@ -104,21 +104,18 @@ class SimulatorConfig(BaseModel):
 
 class PretrainConfig(BaseModel):
     target_std: float = 0.5
-    epochs: int = 100
+    epochs: int = 50
     num_augmentation: int = 1_000
     augmentation_distribution: str = "uniform" # choices=["uniform", "normal"]
     train_subset: str = "combined" # choices=["interpolation", "combined"] MAD only is when num_aug is 0
     train_ratio: float = 0.8
     batch_size: int = 512
     lr: float = 3.0e-4
-    beta_1: float = .005 # mi weight, use 0.5 for mse
-    beta_2: float = 0.0 # kl weight
-    beta_3: float = 1.0 # sl weight
 
 
 class MIConfig(BaseModel):
     beta_1: float = 1.0 # mi weight, use 0.5 for mse
-    beta_2: float = 0.01 # kl weight
+    beta_2: float = 0.1 # kl weight
     beta_3: float = 1.0 # sl weight
     ft_weight: float = 1. # finetune loss weight
     pt_weight: float = 1. # pretrain loss weight
@@ -137,6 +134,9 @@ class MIConfig(BaseModel):
     # iter mi
     aggregate_data: bool = True
 
+    # for comparison
+    only_copy_teacher: bool = False
+
 
 class BaseConfig(BaseModel):
     # path config
@@ -148,6 +148,7 @@ class BaseConfig(BaseModel):
     rollout_data_path: PosixPath = ROOT_PATH / "datasets" / "rollouts"
     results_path: PosixPath = ROOT_PATH / "results"
     target_person: str = "Female0"
+    val_people: List[str] = ["Male8", "Female4"]
     
     # wandb
     use_wandb: bool = True

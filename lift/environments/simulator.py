@@ -11,7 +11,6 @@ from tensordict import TensorDict
 from lift.datasets import (
     get_samples_per_group,
     load_all_mad_datasets,
-    WeightedInterpolator,
     load_mad_person_trial,
     compute_features,
     interpolate_emg,
@@ -19,6 +18,7 @@ from lift.datasets import (
     make_overlap_windows
     )
 from lift.datasets import MAD_LABELS_TO_DOF
+from lift.environments.interpolation import WeightedInterpolator
 
 
 logging.basicConfig(level=logging.INFO)
