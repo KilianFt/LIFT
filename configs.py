@@ -105,7 +105,7 @@ class SimulatorConfig(BaseModel):
 class PretrainConfig(BaseModel):
     target_std: float = 0.5
     epochs: int = 100
-    num_augmentation: int = 1_000
+    num_augmentation: int = 3_000
     augmentation_distribution: str = "uniform" # choices=["uniform", "normal"]
     train_subset: str = "combined" # choices=["interpolation", "combined"] MAD only is when num_aug is 0
     train_ratio: float = 0.8
@@ -147,6 +147,10 @@ class BaseConfig(BaseModel):
     models_path: PosixPath = ROOT_PATH / "models"
     rollout_data_path: PosixPath = ROOT_PATH / "datasets" / "rollouts"
     results_path: PosixPath = ROOT_PATH / "results"
+    
+    # people
+    # exclude_people: list = ["Female0"]
+    exclude_people: list = []
     target_person: str = "Female1"
     
     # wandb

@@ -91,9 +91,9 @@ class WeightedInterpolator:
 
 def get_samples_per_group(windows, labels, num_samples_per_group=1):
     mad_windows_group, mad_labels_group = mad_groupby_labels(windows, labels)
-    # sample_idx = [torch.randint(0, len(g), size=(num_samples_per_group,)) for g in mad_windows_group]
-    """DEBUG rule out stochasticity"""
-    sample_idx = [torch.arange(0, num_samples_per_group) for g in mad_windows_group]
+    sample_idx = [torch.randint(0, len(g), size=(num_samples_per_group,)) for g in mad_windows_group]
+    # """DEBUG rule out stochasticity"""
+    # sample_idx = [torch.arange(0, num_samples_per_group) for g in mad_windows_group]
     mad_windows_group = [g[sample_idx[i]] for i, g in enumerate(mad_windows_group)]
     mad_labels_group = [l * torch.ones_like(sample_idx[l]) for l in mad_labels_group]
 

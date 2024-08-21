@@ -111,12 +111,16 @@ def load_data(config: BaseConfig, load_fake=False):
         return load_fake_data(config)
 
     all_people_list = [f"Female{i}" for i in range(10)] + [f"Male{i}" for i in range(16)]
-    people_list = [p for p in all_people_list if not p == config.target_person]
+    people_list = [p for p in all_people_list if not p == config.exclude_people]
 
     all_features = None
     all_actions = None
 
-    for p in people_list:
+    """DEBUG, add more windows per person"""
+    from itertools import product
+    num_samples = 5 # num window samples per person
+    config.pretrain.num_augmentation //= num_samples
+    for p, _ in product(people_list, np.arange(num_samples)):
         other_list = [o_p for o_p in all_people_list if not o_p == p]
 
         p_windows, p_labels, _ = load_all_mad_datasets(
