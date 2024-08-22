@@ -2,6 +2,7 @@ import os
 import pickle
 import wandb
 import torch
+import torch.nn as nn
 import numpy as np
 import lightning as L
 from pytorch_lightning.loggers import WandbLogger
@@ -136,6 +137,7 @@ def load_data(config: BaseConfig, load_fake=False):
             skip_person=other_list,
             return_tensors=True,
             verbose=False,
+            cutoff_n_outer_samples=config.cutoff_n_outer_samples,
         )
 
         p_actions = mad_labels_to_actions(
@@ -235,7 +237,7 @@ def main():
         cat_keys=config.teacher.env_cat_keys,
     )
 
-    trainer = MITrainer(config, env, pretrain=True, supervise=True)
+    trainer = MITrainer(config, env, pretrain=True, supervise=True, activation=nn.ReLU)
     
     # test once before train
     validate(env, teacher, sim, trainer.encoder, pt_data_dict["mu"], pt_data_dict["sd"], logger)

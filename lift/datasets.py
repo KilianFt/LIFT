@@ -258,6 +258,7 @@ def load_mad_dataset(
     desired_labels: list = None,
     skip_person: list = None,
     verbose: bool = True,
+    cutoff_n_outer_samples: int = 0
 ):
     """Load all person trials in mad dataset in either pretrain or eval path
     
@@ -286,9 +287,12 @@ def load_mad_dataset(
                 emg_range=emg_range, 
                 desired_labels=desired_labels,
             )
+            # take away n samples
+            if cutoff_n_outer_samples > 0:
+                emg = [e[cutoff_n_outer_samples:-cutoff_n_outer_samples,:] for e in emg]
             windows = [
                 make_overlap_windows(
-                    e, 
+                    e,
                     window_size=window_size, 
                     window_overlap=window_overlap,
                 ) for e in emg
@@ -316,6 +320,7 @@ def load_all_mad_datasets(
     skip_person: list = None,
     return_tensors: bool = False,
     verbose: bool = True,
+    cutoff_n_outer_samples: int = 0,
 ):
     """Load all mad pretain and eval data
     
@@ -336,6 +341,7 @@ def load_all_mad_datasets(
         desired_labels=desired_labels,
         skip_person=skip_person,
         verbose=verbose,
+        cutoff_n_outer_samples=cutoff_n_outer_samples,
     )
     eval_dataset = load_mad_dataset(
         eval_path, 
@@ -346,6 +352,7 @@ def load_all_mad_datasets(
         desired_labels=desired_labels,
         skip_person=skip_person,
         verbose=verbose,
+        cutoff_n_outer_samples=cutoff_n_outer_samples,
     )
 
     if len(train_dataset['training0']['emg']) < 1:

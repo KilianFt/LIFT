@@ -106,6 +106,7 @@ class NonParametricWeightedSimulator(Simulator):
             skip_person=other_list,
             return_tensors=True,
             verbose=False,
+            cutoff_n_outer_samples=config.cutoff_n_outer_samples,
         )
         if num_samples_per_group is not None:
             person_windows, person_labels = get_samples_per_group(person_windows, person_labels, num_samples_per_group)

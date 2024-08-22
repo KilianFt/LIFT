@@ -1,7 +1,7 @@
 program: scripts/pretrain_mi.py
 method: bayes
 metric:
-  name: encoder_mae
+  name: encoder_mae # should this be encoder_mae or val/act_mae?
   goal: minimize
 parameters:
   pretrain:
@@ -11,29 +11,26 @@ parameters:
         min: 0.00001
         max: 0.001
       batch_size:
-        values: [ 128, 256, 512 ]
+        values: [ 256, 512, 750, 1000 ]
       epochs:
-        values: [ 30, 50, 70]
+        values: [ 50, 70, 90, 110 ]
       num_augmentation:
-        values: [ 1000, 3000, 5000 ]
+        values: [ 1000, 3000, 5000, 7000 ]
   mi:
     parameters:
       beta_1:
         value: 1.0
-        # values: [ 1.0, 1.25, 1.5 ]
       beta_2:
-        values: [ 0.1, 0.3, 0.5, 0.7 ]
+        values: [ 0.001, 0.01, 0.1 ]
       beta_3:
-        values: [ 0.1, 0.3, 0.5, 0.7, 1.0 ]
-      sl_sd:
-        values: [ 0.2, 0.5]
+        values: [ 0.5, 1.0, 1.5, 2.0 ]
   encoder:
     parameters:
       hidden_size:
-        values: [ 64, 126, 256, 512 ]
+        values: [ 32, 64, 126, 256, 512 ]
       n_layers:
-        min: 1
-        max: 7
+        min: 3
+        max: 10
       dropout:
-        min: 0.0
-        max: 0.4
+        min: 0.1
+        max: 0.6

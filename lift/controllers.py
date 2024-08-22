@@ -182,13 +182,14 @@ class MITrainer(L.LightningModule):
         teacher: SAC | None = None, 
         pretrain: bool = False, 
         supervise: bool = False,
+        activation: nn.Module = nn.SiLU,
     ):
         super().__init__()
         self.pretrain = pretrain
         self.supervise = supervise
         self.sl_sd = config.mi.sl_sd
         self.num_neg_samples = config.mi.num_neg_samples
-        self.lr = config.mi.lr
+        self.lr = config.mi.lr if not pretrain else config.pretrain.lr
         self.beta_1 = config.mi.beta_1
         self.beta_2 = config.mi.beta_2
         self.beta_3 = config.mi.beta_3
@@ -212,6 +213,7 @@ class MITrainer(L.LightningModule):
             dropout=config.encoder.dropout,
             out_min=self.act_min,
             out_max=self.act_max,
+            activation=activation,
         )
 
         self.critic = MLP(
@@ -219,7 +221,7 @@ class MITrainer(L.LightningModule):
             1, 
             hidden_dims, 
             dropout=0., 
-            activation=nn.SiLU, 
+            activation=activation, 
             output_activation=None,
         )
 

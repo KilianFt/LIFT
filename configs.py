@@ -115,8 +115,8 @@ class PretrainConfig(BaseModel):
 
 class MIConfig(BaseModel):
     beta_1: float = 1.0 # mi weight, use 0.5 for mse
-    beta_2: float = 0.1 # kl weight
-    beta_3: float = 1.0 # sl weight
+    beta_2: float = 0.01 # kl weight
+    beta_3: float = 2.0 # sl weight
     ft_weight: float = 1. # finetune loss weight
     pt_weight: float = 1. # pretrain loss weight
     kl_approx_method: str = "logp" # choices=[logp, abs, mse]
@@ -136,6 +136,8 @@ class MIConfig(BaseModel):
 
     # for comparison
     only_copy_teacher: bool = False
+
+    # TODO mode for sl to intended actions
 
 
 class BaseConfig(BaseModel):
@@ -159,9 +161,10 @@ class BaseConfig(BaseModel):
     # data
     num_channels: int = 8
     window_size: int = 200
-    window_overlap: int = 50
+    window_overlap: int = 150
     emg_range: list = [-128., 127.]
     desired_mad_labels: list = [0, 1, 2, 3, 4, 5, 6]
+    cutoff_n_outer_samples: int = 0 # num of samples to discard in beginning and end of each recording
 
     # user model
     noise_range: list | None = [0., 1.] # noise added to teacher env

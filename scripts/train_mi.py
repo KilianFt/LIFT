@@ -2,6 +2,7 @@ import os
 import pickle
 import wandb
 import torch
+import torch.nn as nn
 import logging
 import numpy as np
 import lightning as L
@@ -197,7 +198,7 @@ def main(kwargs=None):
     pt_encoder_state_dict = torch.load(config.models_path / "pretrain_mi_encoder.pt")
     pt_critic_state_dict = torch.load(config.models_path / "pretrain_mi_critic.pt")
     
-    trainer = MITrainer(config, env, teacher, pretrain=False, supervise=True)
+    trainer = MITrainer(config, env, teacher, pretrain=False, supervise=True, activation=nn.ReLU)
     trainer.encoder.load_state_dict(pt_encoder_state_dict)
     trainer.critic.load_state_dict(pt_critic_state_dict)
 
