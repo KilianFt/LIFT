@@ -1,7 +1,7 @@
 """
 Iterative MI training
 """
-import argparse
+import os
 import logging
 import copy
 import pickle
@@ -22,6 +22,10 @@ from lift.environments.teacher_envs import apply_gaussian_drift, ConditionedTeac
 from lift.datasets import get_dataloaders
 from lift.controllers import MITrainer, EMGAgent
 
+# FIXME move this to dataset or somewhere else
+from train_mi import get_ft_data, combine_pt_ft_data
+
+
 logging.basicConfig(level=logging.INFO)
 
 def maybe_rollout(env: EMGEnv, policy: EMGAgent, config: BaseConfig, use_saved=True):
@@ -35,8 +39,7 @@ def maybe_rollout(env: EMGEnv, policy: EMGAgent, config: BaseConfig, use_saved=T
         data = rollout(
             env,
             policy,
-            # n_steps=config.mi.n_steps_rollout,
-            n_steps=3000,
+            n_steps=config.mi.n_steps_rollout,
             sample_mean=True,
             terminate_on_done=False,
             reset_on_done=True,
@@ -64,9 +67,9 @@ def validate_data(data, logger):
 
     return mean_rwd, std_rwd, mae
 
-def validate(env, teacher, sim, encoder, logger):
+def validate(env, teacher, sim, encoder, mu, sd, logger):
     emg_env = EMGEnv(env, teacher, sim)
-    agent = EMGAgent(encoder)
+    agent = EMGAgent(encoder, mu, sd)
     data = rollout(
         emg_env, 
         agent, 
@@ -80,13 +83,8 @@ def validate(env, teacher, sim, encoder, logger):
 
 
 def train(data, model, logger, config: BaseConfig):
-    sl_data_dict = {
-        "obs": data["obs"]["observation"],
-        "emg_obs": data["obs"]["emg_observation"],
-        "intended_action": data["info"]["intended_action"],
-    }
     train_dataloader, val_dataloader = get_dataloaders(
-        data_dict=sl_data_dict,
+        data_dict=data,
         train_ratio=config.mi.train_ratio,
         batch_size=config.mi.batch_size,
         num_workers=config.num_workers,
@@ -120,24 +118,18 @@ def append_dataset(dataset, data):
             else:
                 dataset[k] = np.concatenate([dataset[k], v], axis=0)
 
-def main(kwargs=None):
-    if kwargs is not None:
-        config = BaseConfig(**kwargs)
-    else:
-        config = BaseConfig()
-
-    L.seed_everything(config.seed)
-
+def main():
+    config = BaseConfig()
     if config.use_wandb:
         tags = ['align_teacher']
-        if kwargs is not None:
-            tags.append(kwargs['tag'])
-        _ = wandb.init(project='lift_test', name=config.run_name, tags=tags)
-        # config = BaseConfig(**wandb.config) this will overwrite the noise_range
+        _ = wandb.init(project='lift', tags=tags)
+        config = BaseConfig(**wandb.config)
         logger = WandbLogger()
         wandb.config.update(config.model_dump())
     else:
         logger = None
+
+    L.seed_everything(config.seed)
 
     env = NpGymEnv(
         "FetchReachDense-v2", 
@@ -150,6 +142,15 @@ def main(kwargs=None):
         return_features=True,
     )
     
+    # when noise, slope and alpha is set, overwrite ranges here
+    if config.noise is not None:
+        config.noise_range = [config.noise, config.noise]
+    if config.noise_slope is not None:
+        config.noise_slope_range = [config.noise_slope, config.noise_slope]
+    if config.alpha is not None:
+        config.alpha_range = [config.alpha, config.alpha]
+    wandb.config.update(config.model_dump(), allow_val_change=True)
+
     # init user with known noise and alpha for controlled experiment
     user = load_teacher(config, meta=True)
     user = ConditionedTeacher(
@@ -171,27 +172,35 @@ def main(kwargs=None):
     trainer.encoder.load_state_dict(bc_encoder_state_dict)
     trainer.critic.load_state_dict(bc_critic_state_dict)
     
-    # interactive training loop
-    num_sessions = 5
+    with open(os.path.join(config.data_path, "pt_dataset.pkl"), 'rb') as f:
+        pt_data = pickle.load(f)
+    emg_mu = pt_data["mu"]
+    emg_sd = pt_data["sd"]
+    pt_data.pop("mu", None)
+    pt_data.pop("sd", None)
 
-    # TODO init dataset with supervised
+    # interactive training loop
+    num_sessions = config.mi.num_sessions
+
     dataset = {}
 
     for i in range(num_sessions):
         # collect user data
         print("user meta vars", user.get_meta_vars())
         emg_env = EMGEnv(env, user, sim)
-        emg_policy = EMGAgent(trainer.encoder)
+        emg_policy = EMGAgent(trainer.encoder, emg_mu, emg_sd)
 
         data = maybe_rollout(emg_env, emg_policy, config, use_saved=False)
         validate_data(data, logger)
-
-        append_dataset(dataset, data)
+        ft_data = get_ft_data(data, emg_mu, emg_sd)
+        append_dataset(dataset, ft_data)
 
         # we might want to aggregate data from multiple sessions
         dataset = dataset if config.mi.aggregate_data else data
-        print("dataset size", len(dataset["obs"]["observation"]))
-        train(dataset, trainer, logger, config)
+        print("dataset size", len(dataset["obs"]))
+        combined_data = combine_pt_ft_data(pt_data, dataset)
+
+        train(combined_data, trainer, logger, config)
         # if i == 1:
         #     import pdb
         #     pdb.set_trace()
@@ -221,7 +230,7 @@ def main(kwargs=None):
         user.set_meta_vars(user_meta_vars)
 
     # test once at the end
-    validate(env, user, sim, trainer.encoder, logger)
+    validate(env, teacher, sim, trainer.encoder, emg_mu, emg_sd, logger)
 
     # torch.save(trainer, config.models_path / 'mi_iter.pt')
 
@@ -229,45 +238,45 @@ def main(kwargs=None):
         wandb.finish()
 
 if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--sweep", action="store_true")
-    parser.add_argument("--baseline", action="store_true")
-    args = parser.parse_args()
+    # import argparse
+    # parser = argparse.ArgumentParser()
+    # parser.add_argument("--sweep", action="store_true")
+    # parser.add_argument("--baseline", action="store_true")
+    # args = parser.parse_args()
     
-    if args.sweep:
-        import itertools
-        # seeds = [100, 42, 123, 789]
-        seeds = [100]
-        # alphas = [1.0, 3.0]
-        alphas = [1.0]
+    # if args.sweep:
+    #     import itertools
+    #     # seeds = [100, 42, 123, 789]
+    #     seeds = [100]
+    #     # alphas = [1.0, 3.0]
+    #     alphas = [1.0]
 
-        # teacher_noises = np.linspace(0.001, .9, 5)
-        # teacher_noise_slopes = np.linspace(0.001, .9, 5)
-        teacher_noises = np.linspace(0.9, .9, 5)
-        teacher_noise_slopes = np.linspace(0.001, .9, 5)
-        combinations = itertools.product(alphas, teacher_noises, teacher_noise_slopes, seeds)
+    #     # teacher_noises = np.linspace(0.001, .9, 5)
+    #     # teacher_noise_slopes = np.linspace(0.001, .9, 5)
+    #     teacher_noises = np.linspace(0.9, .9, 5)
+    #     teacher_noise_slopes = np.linspace(0.001, .9, 5)
+    #     combinations = itertools.product(alphas, teacher_noises, teacher_noise_slopes, seeds)
 
-        for combination in combinations:
-            constant_alpha, constant_noise, constant_noise_slope, seed = combination
-            run_name = "{}_sweep_kl05_alpha_{}_noise_{}_slope_{}_{}".format(
-                "mi" if not args.baseline else "baseline",
-                constant_alpha,
-                constant_noise,
-                constant_noise_slope,
-                seed,
-            )
-            kwargs = {
-                "alpha_range": [constant_alpha]*2,
-                "noise_range": [constant_noise]*2,
-                "noise_slope_range": [constant_noise_slope]*2,
-                "tag": "mi_sweep_kl05",
-                "run_name": run_name,
-                "seed": seed,
-            }
-            if args.baseline:
-                kwargs["encoder"] = {"beta_1": 0.}
-            main(kwargs)
-            break
-    else:
-        main()
+    #     for combination in combinations:
+    #         constant_alpha, constant_noise, constant_noise_slope, seed = combination
+    #         run_name = "{}_sweep_kl05_alpha_{}_noise_{}_slope_{}_{}".format(
+    #             "mi" if not args.baseline else "baseline",
+    #             constant_alpha,
+    #             constant_noise,
+    #             constant_noise_slope,
+    #             seed,
+    #         )
+    #         kwargs = {
+    #             "alpha_range": [constant_alpha]*2,
+    #             "noise_range": [constant_noise]*2,
+    #             "noise_slope_range": [constant_noise_slope]*2,
+    #             "tag": "mi_sweep_kl05",
+    #             "run_name": run_name,
+    #             "seed": seed,
+    #         }
+    #         if args.baseline:
+    #             kwargs["encoder"] = {"beta_1": 0.}
+    #         main(kwargs)
+    #         break
+    # else:
+    main()

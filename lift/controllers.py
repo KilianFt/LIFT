@@ -12,6 +12,7 @@ from configs import BaseConfig
 from lift.neural_nets import MLP
 from lift.environments.gym_envs import NpGymEnv
 from lift.rl.sac import SAC
+from lift.rl.utils import get_activation
 from lift.utils import cross_entropy, normalize
 
 class CategoricalEncoder(nn.Module):
@@ -101,7 +102,7 @@ class TanhGaussianEncoder(nn.Module):
 
 class BCTrainer(L.LightningModule):
     """Behavior cloning trainer"""
-    def __init__(self, config: BaseConfig, env: NpGymEnv, activation=nn.SiLU):
+    def __init__(self, config: BaseConfig, env: NpGymEnv):
         super().__init__()
         self.lr = config.pretrain.lr
         self.x_dim = config.feature_size
@@ -118,7 +119,7 @@ class BCTrainer(L.LightningModule):
             dropout=config.encoder.dropout,
             out_min=self.act_min,
             out_max=self.act_max,
-            activation=activation,
+            activation=get_activation(config.encoder.activation),
         )
         self.target_std = config.pretrain.target_std
         self.beta = 0.1
@@ -182,7 +183,6 @@ class MITrainer(L.LightningModule):
         teacher: SAC | None = None, 
         pretrain: bool = False, 
         supervise: bool = False,
-        activation: nn.Module = nn.SiLU,
     ):
         super().__init__()
         self.pretrain = pretrain
@@ -213,7 +213,7 @@ class MITrainer(L.LightningModule):
             dropout=config.encoder.dropout,
             out_min=self.act_min,
             out_max=self.act_max,
-            activation=activation,
+            activation=get_activation(config.encoder.activation),
         )
 
         self.critic = MLP(
@@ -221,7 +221,7 @@ class MITrainer(L.LightningModule):
             1, 
             hidden_dims, 
             dropout=0., 
-            activation=activation, 
+            activation=get_activation(config.mi.activation), 
             output_activation=None,
         )
 

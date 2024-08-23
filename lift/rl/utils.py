@@ -57,6 +57,8 @@ def get_activation(activation):
         return nn.Tanh
     elif activation == "leaky_relu":
         return nn.LeakyReLU
+    elif activation == "silu":
+        return nn.SiLU
     else:
         raise NotImplementedError
     

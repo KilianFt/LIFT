@@ -87,6 +87,7 @@ class EncoderConfig(BaseModel):
     hidden_size: int = 256
     n_layers: int = 3
     dropout: float = 0.1
+    activation: str = "relu"  # "relu", "tanh", "silu", "leaky_relu"
 
 
 class SimulatorConfig(BaseModel):
@@ -110,13 +111,13 @@ class PretrainConfig(BaseModel):
     train_subset: str = "combined" # choices=["interpolation", "combined"] MAD only is when num_aug is 0
     train_ratio: float = 0.8
     batch_size: int = 512
-    lr: float = 3.0e-4
+    lr: float = 1.0e-3
 
 
 class MIConfig(BaseModel):
     beta_1: float = 1.0 # mi weight, use 0.5 for mse
-    beta_2: float = 0.01 # kl weight
-    beta_3: float = 2.0 # sl weight
+    beta_2: float = 0.1 # kl weight
+    beta_3: float = 1.0 # sl weight
     ft_weight: float = 1. # finetune loss weight
     pt_weight: float = 1. # pretrain loss weight
     kl_approx_method: str = "logp" # choices=[logp, abs, mse]
@@ -125,17 +126,20 @@ class MIConfig(BaseModel):
     train_ratio: float = 0.8
     batch_size: int = 256
     epochs: int = 50
-    max_steps: int = 500
+    max_steps: int = 5000
     lr: float = 1.0e-3
     n_steps_rollout: int = 10_000
     random_pertube_prob: float = 0.0
     action_noise: float = 0.0
+    activation: str = "relu"  # "relu", "tanh", "silu", "leaky_relu"
 
     # iter mi
     aggregate_data: bool = True
 
     # for comparison
-    only_copy_teacher: bool = False
+    only_copy_teacher: bool = True
+
+    num_sessions: int = 1
 
     # TODO mode for sl to intended actions
 
@@ -171,6 +175,12 @@ class BaseConfig(BaseModel):
     noise_slope_range: list | None = [0., 1.] # action dependent noise
     alpha_range: list | None = [1., 3.] # ratio multiplied to teacher std
     alpha_apply_range: list | None = [0., 3.,] # goal dist range to apply alpha scaling
+
+    # use this to fix the values
+    noise: float | None = 0.
+    noise_slope: float | None = 0.
+    alpha: float | None = 1.
+
     noise_drift: list | None = None#[-0.1, 0.0] # [offset, std]
     alpha_drift: list | None = None#[-0.1, 0.0] # [-0.1, 0.2] # [offset, std]
     # what if user is biased?

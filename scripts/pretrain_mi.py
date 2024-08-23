@@ -237,7 +237,7 @@ def main():
         cat_keys=config.teacher.env_cat_keys,
     )
 
-    trainer = MITrainer(config, env, pretrain=True, supervise=True, activation=nn.ReLU)
+    trainer = MITrainer(config, env, pretrain=True, supervise=True)
     
     # test once before train
     validate(env, teacher, sim, trainer.encoder, pt_data_dict["mu"], pt_data_dict["sd"], logger)
