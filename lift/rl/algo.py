@@ -65,6 +65,7 @@ class AlgoBase(ABC):
         # FIXME this can predict values < -1 and > 1
         # act_dist = self.get_action_dist(obs)
         # if sample_mean:
+        # FIXME might be able to fix this by tanh(x)
         #     act = act_dist.loc
         # else:
         #     act = act_dist.sample()

@@ -119,7 +119,7 @@ class MIConfig(BaseModel):
     beta_2: float = 0.1 # kl weight
     beta_3: float = 1.0 # sl weight
     ft_weight: float = 1. # finetune loss weight
-    pt_weight: float = 1. # pretrain loss weight
+    pt_weight: float = .2 # pretrain loss weight
     kl_approx_method: str = "logp" # choices=[logp, abs, mse]
     num_neg_samples: int = 50
     sl_sd: float = 0.2 # fixed sl std
@@ -137,7 +137,7 @@ class MIConfig(BaseModel):
     aggregate_data: bool = True
 
     # for comparison
-    only_copy_teacher: bool = True
+    only_copy_teacher: bool = False
 
     num_sessions: int = 1
 
