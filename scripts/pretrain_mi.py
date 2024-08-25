@@ -212,7 +212,7 @@ def main():
     config = BaseConfig()
     if config.use_wandb:
         _ = wandb.init(project='lift',
-                       tags=['align_teacher', 'beta_sweep_generalization'])
+                       tags=['pretrain'])
         config = BaseConfig(**wandb.config)
         logger = WandbLogger()
         wandb.config.update(config.model_dump())
