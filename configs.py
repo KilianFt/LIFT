@@ -49,7 +49,7 @@ class TeacherConfig(BaseModel):
     eval_iter: int = 5000
 
     teacher_filename: str = "teacher.pt"
-    meta_teacher_filename: str = "meta_teacher.pt"
+    meta_teacher_filename: str = "teacher_meta.pt"
     
 
 class OfflineRLConfig(BaseModel):
@@ -175,8 +175,8 @@ class BaseConfig(BaseModel):
     cutoff_n_outer_samples: int = 0 # num of samples to discard in beginning and end of each recording
 
     # user model
-    noise_range: list | None = [0., 1.] # noise added to teacher env
-    noise_slope_range: list | None = [0., 1.] # action dependent noise
+    noise_range: list | None = [-0.2, 1.2] # noise added to teacher env
+    noise_slope_range: list | None = [-0.2, 1.2] # action dependent noise
     alpha_range: list | None = [1., 3.] # ratio multiplied to teacher std
     alpha_apply_range: list | None = [0., 3.,] # goal dist range to apply alpha scaling
 

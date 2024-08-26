@@ -16,7 +16,7 @@ from lift.rl.sac_meta import MetaSAC
 def compute_noise_scale(action: np.ndarray | torch.Tensor, base_noise: float, slope: float):
     """Linear scale noise from base_noise up to 2"""
     abs_action = np.abs(action) if isinstance(action, np.ndarray) else action.abs()
-    noise = base_noise + abs_action * slope 
+    noise = base_noise.clip(0, 2.) + abs_action * slope.clip(0, 2)
     return noise.clip(0., 2.)
 
 def compute_alpha_scale(obs: np.ndarray, max_alpha: float, apply_range: list[float]):
