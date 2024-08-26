@@ -96,6 +96,8 @@ class TeacherEnv(gym.Wrapper):
             decoded_action = action.copy()
 
         obs, rwd, done, info = self.env.step(decoded_action)
+        info["noise"] = self.noise
+        info["noise_slope"] = self.noise_slope
 
         if self.noise is not None and self.append_obs:
             obs["observation"] = np.concatenate([obs["observation"], self.noise])

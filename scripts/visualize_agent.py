@@ -22,7 +22,7 @@ def visualize_teacher(config: BaseConfig, meta=False, sample_mean=False):
         render_mode="human",
     )
     if meta:
-        env = TeacherEnv(env, config.noise_range, config.alpha_range)
+        env = TeacherEnv(env, config.noise_range, config.noise_slope_range)
     
     data = rollout(
         env,

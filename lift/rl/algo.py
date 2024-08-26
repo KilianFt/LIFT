@@ -51,25 +51,17 @@ class AlgoBase(ABC):
         return act_dist
     
     def sample_action(self, obs, sample_mean=False):
-        if not sample_mean:
-            raise NotImplementedError
-
         if not isinstance(obs, TensorDict):
             obs = obs["observation"]
             if not isinstance(obs, torch.Tensor):
                 obs = torch.from_numpy(obs).to(torch.float32)
             obs = TensorDict({"observation": obs})
-
-        out = self.model.policy(obs)
-        act = out["action"]
-        # FIXME this can predict values < -1 and > 1
-        # act_dist = self.get_action_dist(obs)
-        # if sample_mean:
-        # FIXME might be able to fix this by tanh(x)
-        #     act = act_dist.loc
-        # else:
-        #     act = act_dist.sample()
-
+        
+        act_dist = self.get_action_dist(obs)
+        if sample_mean:            
+            act = act_dist.mode
+        else:
+            act = act_dist.sample()
         return act.numpy()
     
     def _post_init_loss_module(self):

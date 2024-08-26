@@ -93,21 +93,31 @@ class SAC(AlgoBase):
                     q_loss = loss_td["loss_qvalue"]
                     alpha_loss = loss_td["loss_alpha"]
 
+                    grad_clip = self.config.grad_clip
                     # Update actor
                     actor_loss.backward()
-                    torch.nn.utils.clip_grad_norm_(self.optimizers["actor"].param_groups[0]["params"], 1.0)
+                    if grad_clip is not None:
+                        torch.nn.utils.clip_grad_norm_(
+                            self.optimizers["actor"].param_groups[0]["params"], grad_clip
+                        )
                     self.optimizers["actor"].step()
-                    self.optimizers["actor"].zero_grad()
+                    self.optimizers["actor"].zero_grad() 
 
                     # Update critic
                     q_loss.backward()
-                    torch.nn.utils.clip_grad_norm_(self.optimizers["critic"].param_groups[0]["params"], 1.0)
+                    if grad_clip is not None:
+                        torch.nn.utils.clip_grad_norm_(
+                            self.optimizers["critic"].param_groups[0]["params"], grad_clip
+                        )
                     self.optimizers["critic"].step()
-                    self.optimizers["critic"].zero_grad()
+                    self.optimizers["critic"].zero_grad()                    
 
                     # Update alpha
                     alpha_loss.backward()
-                    torch.nn.utils.clip_grad_norm_(self.optimizers["alpha"].param_groups[0]["params"], 1.0)
+                    if grad_clip is not None:
+                        torch.nn.utils.clip_grad_norm_(
+                            self.optimizers["alpha"].param_groups[0]["params"], grad_clip
+                        )
                     self.optimizers["alpha"].step()
                     self.optimizers["alpha"].zero_grad()
 

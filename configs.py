@@ -36,16 +36,20 @@ class TeacherConfig(BaseModel):
     target_update_polyak: float = 0.995
     alpha_init: float = 1.0
     adam_eps: float = 1.0e-8
+    grad_clip: float | None = 1.0
     
     # nets
     hidden_sizes: list = [256, 256]
-    activation: str = "relu"
+    activation: str = "silu"
     default_policy_scale: float = 1.0
     scale_lb: float = 0.1
     device: str = "cpu"
 
     # eval
     eval_iter: int = 5000
+
+    teacher_filename: str = "teacher.pt"
+    meta_teacher_filename: str = "meta_teacher.pt"
     
 
 class OfflineRLConfig(BaseModel):
