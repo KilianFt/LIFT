@@ -17,8 +17,9 @@ from lift.rl.utils import (
 )
 
 
-class AlgoBase(ABC):
+class AlgoBase(nn.Module):
     def __init__(self, config, train_env, eval_env, in_keys=["observation"]):
+        super().__init__()
         self.config = config
         self.train_env = train_env
         self.eval_env = eval_env
@@ -36,7 +37,7 @@ class AlgoBase(ABC):
         pass
 
     @abstractmethod
-    def train(self, logger=None):
+    def train_agent(self, logger=None):
         pass
     
     def get_action_dist(self, obs):
@@ -50,7 +51,7 @@ class AlgoBase(ABC):
             act_dist = self.model.policy.get_dist(obs)
         return act_dist
     
-    def sample_action(self, obs, sample_mean=False):
+    def sample_action(self, obs, sample_mean=False, return_numpy=True):
         if not isinstance(obs, TensorDict):
             obs = obs["observation"]
             if not isinstance(obs, torch.Tensor):
@@ -62,7 +63,10 @@ class AlgoBase(ABC):
             act = act_dist.mode
         else:
             act = act_dist.sample()
-        return act.numpy()
+        
+        if return_numpy:
+            act = act.data.cpu().numpy()
+        return act
     
     def _post_init_loss_module(self):
         self.loss_module.make_value_estimator(gamma=self.config.gamma)

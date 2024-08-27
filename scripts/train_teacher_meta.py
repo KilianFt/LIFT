@@ -48,7 +48,7 @@ def main():
         train_env,
         eval_env,
     )
-    sac.train(logger)
+    sac.train_agent(logger)
     sac.save(config.models_path / config.teacher.meta_teacher_filename)
 
 if __name__ == "__main__":

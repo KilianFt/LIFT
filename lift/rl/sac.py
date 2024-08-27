@@ -37,7 +37,8 @@ class SAC(AlgoBase):
             alpha_init=self.config.alpha_init,
         )
     
-    def train(self, logger=None):
+    # def train(self, logger=None):
+    def train_agent(self, logger=None):
         # Create off-policy collector
         collector = make_collector(self.config, self.train_env, self.model["policy"])
 
@@ -193,6 +194,6 @@ if __name__ == '__main__':
     model = SAC(config, train_env, eval_env)
 
     logger = None
-    model.train(logger=logger)
+    model.train_agent(logger=logger)
 
     model.save('sac.pth')
