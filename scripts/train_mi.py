@@ -17,6 +17,7 @@ from lift.environments.rollout import rollout
 from lift.teacher import load_teacher
 from lift.datasets import get_dataloaders
 from lift.controllers import MITrainer, EMGAgent
+from lift.environments.teacher_envs import ConditionedTeacher
 from lift.utils import normalize
 
 
@@ -179,7 +180,16 @@ def main(kwargs=None):
     else:
         logger = None
     
-    teacher = load_teacher(config)
+    # teacher = load_teacher(config)
+    teacher = load_teacher(config, meta=True, filename="teacher_meta.pt")
+    teacher = ConditionedTeacher(
+        teacher, 
+        noise_range=[0., 0.], 
+        noise_slope_range=[0., 0.], 
+        alpha_range=[1., 1.],
+    )
+    teacher.reset()
+
     data_path = (config.mad_data_path / config.target_person / "training0").as_posix()
     sim = SimulatorFactory.create_class(
         data_path,
@@ -195,10 +205,10 @@ def main(kwargs=None):
     )
 
     # init trainer
+    trainer = MITrainer(config, env, teacher, pretrain=False, supervise=True)
+
     pt_encoder_state_dict = torch.load(config.models_path / "pretrain_mi_encoder.pt")
     pt_critic_state_dict = torch.load(config.models_path / "pretrain_mi_critic.pt")
-    
-    trainer = MITrainer(config, env, teacher, pretrain=False, supervise=True)
     trainer.encoder.load_state_dict(pt_encoder_state_dict)
     trainer.critic.load_state_dict(pt_critic_state_dict)
 

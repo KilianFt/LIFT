@@ -12,6 +12,7 @@ from configs import BaseConfig
 from lift.neural_nets import MLP
 from lift.environments.gym_envs import NpGymEnv
 from lift.rl.sac import SAC
+from lift.environments.teacher_envs import ConditionedTeacher
 from lift.rl.utils import get_activation
 from lift.utils import cross_entropy, normalize
 
@@ -180,7 +181,7 @@ class MITrainer(L.LightningModule):
         self, 
         config: BaseConfig, 
         env: NpGymEnv, 
-        teacher: SAC | None = None, 
+        teacher: SAC | ConditionedTeacher | None = None, 
         pretrain: bool = False, 
         supervise: bool = False,
     ):
@@ -225,10 +226,7 @@ class MITrainer(L.LightningModule):
             output_activation=None,
         )
 
-        if teacher is not None:
-            self.teacher = teacher.model.policy
-        else:
-            self.teacher = None
+        self.teacher = teacher
     
     def compute_mi_loss(self, x, z, x_neg):
         """Compute infonce loss"""
@@ -255,13 +253,13 @@ class MITrainer(L.LightningModule):
     
     def compute_kl_loss(self, z, z_dist, o=None, y=None):
         """Compute sample based kl divergence from teacher"""
-        if o is not None and isinstance(self.teacher, ProbabilisticActor):
+        if o is not None and self.teacher is not None:
             teacher_inputs = TensorDict({
                 "observation": o,
                 "action": z,
             })
             with torch.no_grad():
-                teacher_dist = self.teacher.get_dist(teacher_inputs)
+                teacher_dist = self.teacher.get_action_dist(teacher_inputs)                
             log_prior = teacher_dist.log_prob(z)
         elif y is not None:
             # use true y as prior mean
@@ -287,7 +285,6 @@ class MITrainer(L.LightningModule):
             kl = 0.5 * nn.SmoothL1Loss()(log_post, log_prior)
         elif self.kl_approx_method == "mse":
             with torch.no_grad():
-                teacher_dist = self.teacher.get_dist(teacher_inputs)
                 a_teacher = teacher_dist.mode
             kl = torch.pow(z - a_teacher, 2).mean()
         else:
@@ -426,7 +423,7 @@ class MITrainer(L.LightningModule):
         # calculate sl loss for stats and compare to copying teacher
         teacher_inputs = TensorDict({"observation": o,})
         with set_exploration_type(ExplorationType.MODE), torch.no_grad():
-            ft_teacher_y = self.teacher(teacher_inputs)["action"]
+            ft_teacher_y = self.teacher.get_action_dist(teacher_inputs).mode
         ft_sl_loss, ft_sl_stats = self.compute_sl_loss(z, ft_teacher_y)
 
         if self.only_copy_teacher:

@@ -1,6 +1,7 @@
 from typing import Sequence
 import copy
 import torch
+import torch.nn as nn
 from tensordict import TensorDict, TensorDictBase
 from torchrl.envs import Transform
 from torchrl.envs import Compose
@@ -21,11 +22,19 @@ def compute_noise_scale(action: np.ndarray | torch.Tensor, base_noise: float, sl
 
 def compute_alpha_scale(obs: np.ndarray, max_alpha: float, apply_range: list[float]):
     """Linear scale alpha from 1 to max_alpha"""
+    if isinstance(obs, np.ndarray):
+        obs = torch.from_numpy(obs)
+
     cur_pos = obs[..., :3]
     goal = obs[..., 10:13]
-    dist_goal = np.abs(cur_pos - goal).clip(0., apply_range[1]) - apply_range[0]
+    # dist_goal = np.abs(cur_pos - goal).clip(0., apply_range[1]) - apply_range[0]
+    dist_goal = torch.abs(cur_pos - goal).clip(0., apply_range[1]) - apply_range[0]
     alpha = 1 + (max_alpha - 1) / (apply_range[1] - apply_range[0]) * dist_goal
-    alpha = alpha.clip(1., max_alpha)
+    try:
+        alpha = alpha.clip(1., max_alpha)
+    except:
+        import pdb
+        pdb.set_trace()
     return alpha
 
 def apply_gaussian_drift(z: np.ndarray, offset: float, std: float, range=[-np.inf, np.inf]):
@@ -171,7 +180,99 @@ class TeacherTransform(Transform):
         return observation_spec
 
 
-class ConditionedTeacher:
+# class ConditionedTeacher:
+#     """Wrapper to reset teacher with random meta variables for simulated trajectories
+#     Should be used with raw environment
+#     """
+#     def __init__(
+#         self, 
+#         teacher: SAC | MetaSAC, 
+#         noise_range: list[float] | None = [0., 1.], 
+#         noise_slope_range: list[float] | None = [0., 1.], 
+#         alpha_range: list[float] | None = [0., 1.], 
+#         alpha_apply_range: list[float] | None = [1., 3.],
+#         user_bias: float | None = None,
+#     ):
+#         """
+#         Args:
+#             noise_range (list[float] | None): range of base noise to condition the teacher on
+#             noise_slope_range (list[float] | None): range of slope of action magnitude dependent noise
+#             alpha_range (list[float] | None): range of base alpha to modify teacher action sampling
+#             alpha_apply_range (list[float] | None): range of goal distance to apply alpha scaling
+#         """
+#         self.noise_range = noise_range
+#         self.noise_slope_range = noise_slope_range
+#         self.alpha_range = alpha_range
+#         self.alpha_apply_range = alpha_apply_range
+#         self.user_bias = user_bias
+
+#         self.teacher = teacher
+
+#     def reset(self):
+#         self.noise = None
+#         self.noise_slope = None
+#         self.alpha = None
+#         if self.noise_range is not None:
+#             noise = np.random.uniform(self.noise_range[0], self.noise_range[1])
+#             self.noise = np.array([noise])
+#         if self.noise_slope_range is not None:
+#             noise_slope = np.random.uniform(self.noise_slope_range[0], self.noise_slope_range[1])
+#             self.noise_slope = np.array([noise_slope])
+#         if self.alpha_range is not None:
+#             self.alpha = np.random.uniform(self.alpha_range[0], self.alpha_range[1])
+    
+#     def get_meta_vars(self):
+#         return dict(noise=self.noise, noise_slope=self.noise_slope, alpha=self.alpha)
+    
+#     def set_meta_vars(self, meta_vars):
+#         self.noise = meta_vars["noise"]
+#         if not isinstance(meta_vars["noise"], np.ndarray):
+#             self.noise = np.array([self.noise]) 
+#         self.noise_slope = meta_vars["noise_slope"]
+#         if not isinstance(meta_vars["noise_slope"], np.ndarray):
+#             self.noise_slope = np.array([self.noise_slope])
+#         self.alpha = meta_vars["alpha"]
+#         if not isinstance(meta_vars["alpha"], np.ndarray):
+#             self.alpha = np.array(self.alpha)
+
+#     def get_action_dist(self, obs):
+#         obs_ = copy.deepcopy(obs)
+
+#         if self.noise is not None:
+#             noise = np.ones_like(obs_["observation"][..., :1]) * self.noise
+#             obs_["observation"] = np.concatenate([obs_["observation"], noise], axis=-1)
+#         if self.noise_slope is not None:
+#             noise_slope = np.ones_like(obs_["observation"][..., :1]) * self.noise_slope
+#             obs_["observation"] = np.concatenate([obs_["observation"], noise_slope], axis=-1)
+#         act_dist = self.teacher.get_action_dist(obs_)
+
+#         if self.alpha is not None:
+#             alpha = compute_alpha_scale(obs["observation"], self.alpha, self.alpha_apply_range)
+#             new_scale = act_dist.scale * alpha
+#         else:
+#             new_scale = act_dist.scale
+
+#         new_loc = act_dist.loc
+#         if self.user_bias is not None:
+#             new_loc += self.user_bias
+#         act_dist = TanhNormal(loc=new_loc, scale=new_scale,
+#                               upscale=act_dist.upscale, min=act_dist.min, max=act_dist.max)
+#         return act_dist
+    
+#     def sample_action(self, obs, sample_mean=False, return_numpy=True):
+#         act_dist = self.get_action_dist(obs)
+        
+#         if sample_mean:
+#             act = act_dist.mode
+#         else:
+#             act = act_dist.sample()
+
+#         if return_numpy:
+#             act = act.data.cpu().numpy()
+#         return act
+
+
+class ConditionedTeacher(nn.Module):
     """Wrapper to reset teacher with random meta variables for simulated trajectories
     Should be used with raw environment
     """
@@ -191,6 +292,7 @@ class ConditionedTeacher:
             alpha_range (list[float] | None): range of base alpha to modify teacher action sampling
             alpha_apply_range (list[float] | None): range of goal distance to apply alpha scaling
         """
+        super().__init__()
         self.noise_range = noise_range
         self.noise_slope_range = noise_slope_range
         self.alpha_range = alpha_range
@@ -205,10 +307,10 @@ class ConditionedTeacher:
         self.alpha = None
         if self.noise_range is not None:
             noise = np.random.uniform(self.noise_range[0], self.noise_range[1])
-            self.noise = np.array([noise])
+            self.noise = torch.tensor([noise]).to(torch.float32)
         if self.noise_slope_range is not None:
             noise_slope = np.random.uniform(self.noise_slope_range[0], self.noise_slope_range[1])
-            self.noise_slope = np.array([noise_slope])
+            self.noise_slope = torch.tensor([noise_slope]).to(torch.float32)
         if self.alpha_range is not None:
             self.alpha = np.random.uniform(self.alpha_range[0], self.alpha_range[1])
     
@@ -217,25 +319,24 @@ class ConditionedTeacher:
     
     def set_meta_vars(self, meta_vars):
         self.noise = meta_vars["noise"]
-        if not isinstance(meta_vars["noise"], np.ndarray):
-            self.noise = np.array([self.noise]) 
         self.noise_slope = meta_vars["noise_slope"]
-        if not isinstance(meta_vars["noise_slope"], np.ndarray):
-            self.noise_slope = np.array([self.noise_slope])
         self.alpha = meta_vars["alpha"]
-        if not isinstance(meta_vars["alpha"], np.ndarray):
-            self.alpha = np.array(self.alpha)
 
     def get_action_dist(self, obs):
-        obs_ = copy.deepcopy(obs)
+        if not isinstance(obs, TensorDict):
+            obs = obs["observation"]
+            if not isinstance(obs, torch.Tensor):
+                obs = torch.from_numpy(obs).to(torch.float32)
+            obs = TensorDict({"observation": obs})
+        device = obs["observation"].device
 
         if self.noise is not None:
-            noise = np.ones_like(obs_["observation"][..., :1]) * self.noise
-            obs_["observation"] = np.concatenate([obs_["observation"], noise], axis=-1)
+            noise = torch.ones_like(obs["observation"][..., :1], device=device) * self.noise.to(device) 
+            obs["observation"] = torch.cat([obs["observation"], noise], dim=-1)
         if self.noise_slope is not None:
-            noise_slope = np.ones_like(obs_["observation"][..., :1]) * self.noise_slope
-            obs_["observation"] = np.concatenate([obs_["observation"], noise_slope], axis=-1)
-        act_dist = self.teacher.get_action_dist(obs_)
+            noise_slope = torch.ones_like(obs["observation"][..., :1], device=device) * self.noise_slope.to(device)
+            obs["observation"] = torch.cat([obs["observation"], noise_slope], dim=-1)
+        act_dist = self.teacher.get_action_dist(obs)
 
         if self.alpha is not None:
             alpha = compute_alpha_scale(obs["observation"], self.alpha, self.alpha_apply_range)
@@ -250,15 +351,18 @@ class ConditionedTeacher:
                               upscale=act_dist.upscale, min=act_dist.min, max=act_dist.max)
         return act_dist
     
-    def sample_action(self, obs, sample_mean=False):
+    def sample_action(self, obs, sample_mean=False, return_numpy=True):
         act_dist = self.get_action_dist(obs)
         
         if sample_mean:
             act = act_dist.mode
         else:
             act = act_dist.sample()
-        return act.numpy()
 
+        if return_numpy:
+            act = act.data.cpu().numpy()
+        return act
+    
 
 if __name__ == "__main__":
     from torchrl.envs import TransformedEnv
