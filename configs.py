@@ -116,12 +116,14 @@ class PretrainConfig(BaseModel):
     train_ratio: float = 0.8
     batch_size: int = 512
     lr: float = 1.0e-3
-
-
-class MIConfig(BaseModel):
     beta_1: float = 1.0 # mi weight, use 0.5 for mse
     beta_2: float = 0.1 # kl weight
     beta_3: float = 1.0 # sl weight
+
+class MIConfig(BaseModel):
+    beta_1: float = 1.0 # mi weight, use 0.5 for mse
+    beta_2: float = 1.0 # kl weight
+    # beta_3: float = 1.0 # sl weight
     ft_weight: float = 1. # finetune loss weight
     pt_weight: float = .2 # pretrain loss weight
     kl_approx_method: str = "logp" # choices=[logp, abs, mse]

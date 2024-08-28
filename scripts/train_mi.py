@@ -159,27 +159,19 @@ def train(data_dict, model, logger, config: BaseConfig):
     )
 
 
-def main(kwargs=None):
-    if kwargs is not None:
-        config = BaseConfig(**kwargs)
-    else:
-        config = BaseConfig()
-    L.seed_everything(config.seed)
+def main():
+    config = BaseConfig()
 
     if config.use_wandb:
-        tags = ['align_teacher']
-        if kwargs is not None:
-            tags.append('beta_sweep_2')
-        _ = wandb.init(project='lift', tags=tags)
-
-        if kwargs is None:
-            # make sure kwargs are not overwritten by wandb
-            config = BaseConfig(**wandb.config)
+        _ = wandb.init(project='lift', tags=['train_mi'])
+        config = BaseConfig(**wandb.config)
         logger = WandbLogger()
         wandb.config.update(config.model_dump())
     else:
         logger = None
     
+    L.seed_everything(config.seed)
+
     # teacher = load_teacher(config)
     teacher = load_teacher(config, meta=True, filename="teacher_meta.pt")
     teacher = ConditionedTeacher(
@@ -195,7 +187,6 @@ def main(kwargs=None):
         data_path,
         config,
         return_features=True,
-        # num_samples_per_group=1,
     )
 
     env = NpGymEnv(
@@ -241,29 +232,9 @@ def main(kwargs=None):
     # test once after train
     validate(env, teacher, sim, trainer.encoder, emg_mu, emg_sd, logger)
 
-    torch.save(trainer, config.models_path / 'mi.pt')
+    # torch.save(trainer, config.models_path / 'mi.pt')
     wandb.finish()
 
 
 if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--beta_sweep", action="store_true")
-    args = parser.parse_args()
-    
-    if args.beta_sweep:
-        import itertools
-
-        beta_2_values = [0.0, 0.02, 0.04, 0.06, 0.08, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
-        seeds = [42, 123, 456, 789]
-
-        combinations = itertools.product(beta_2_values, seeds)
-
-        for combination in combinations:
-            beta_2, seed = combination
-            kwargs = {"encoder": {"beta_2": beta_2},
-                      "seed": seed,}
-            main(kwargs)
-
-    else:
-        main()
+    main()
