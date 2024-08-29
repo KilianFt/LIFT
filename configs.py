@@ -131,8 +131,8 @@ class MIConfig(BaseModel):
     sl_sd: float = 0.2 # fixed sl std
     train_ratio: float = 0.8
     batch_size: int = 256
-    epochs: int = 50
-    max_steps: int = 5000
+    epochs: int = 20
+    max_steps: int = 2000
     lr: float = 1.0e-3
     n_steps_rollout: int = 10_000
     random_pertube_prob: float = 0.0

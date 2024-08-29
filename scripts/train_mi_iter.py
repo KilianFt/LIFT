@@ -164,7 +164,15 @@ def main():
     user.reset()
 
     # load models
-    teacher = load_teacher(config)
+    # teacher = load_teacher(config)
+    teacher = load_teacher(config, meta=True, filename="teacher_meta.pt")
+    teacher = ConditionedTeacher(
+        teacher, 
+        noise_range=[0., 0.], 
+        noise_slope_range=[0., 0.], 
+        alpha_range=[1., 1.],
+    )
+    teacher.reset()
     bc_encoder_state_dict = torch.load(config.models_path / "pretrain_mi_encoder.pt")
     bc_critic_state_dict = torch.load(config.models_path / "pretrain_mi_critic.pt")
     
@@ -204,8 +212,6 @@ def main():
         # if i == 1:
         #     import pdb
         #     pdb.set_trace()
-
-        # TODO: beta annealing
 
         user_meta_vars = user.get_meta_vars()
 

@@ -1,0 +1,28 @@
+program: scripts/train_mi_iter.py
+method: grid
+metric:
+  name: encoder_mae
+  goal: minimize
+parameters:
+  seed:
+    values: [ 10, 56324, 1001, 123 ]
+  noise:
+    values: [ 0.0, 0.2, 0.4, 0.6, 0.8, 1.0 ]
+  noise_slope:
+    values: [ 0.0, 0.2, 0.4, 0.6, 0.8, 1.0 ]
+  alpha:
+    values: [ 1.0, 3.0 ]
+  mi:
+    parameters:
+      epochs:
+        value: 20
+      max_steps:
+        value: 2000
+      num_sessions:
+        value: 5
+      n_steps_rollout:
+        value: 2000
+  #     beta_2:
+  #       values: [ 0., 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0 ]
+  #     pt_weight:
+  #       values: [ 0., 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0 ]
