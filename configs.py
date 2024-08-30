@@ -123,11 +123,12 @@ class PretrainConfig(BaseModel):
 
 class MIConfig(BaseModel):
     beta_1: float = 1.0 # mi weight, use 0.5 for mse
-    beta_2: float = 2.0 # kl weight
+    beta_2: float = 0.1 # kl weight
     # beta_3: float = 1.0 # sl weight
+    entropy_beta: float = 0.1
     ft_weight: float = 1. # finetune loss weight
     pt_weight: float = 0.5 # pretrain loss weight
-    kl_approx_method: str = "mse" # choices=[logp, abs, mse]
+    kl_approx_method: str = "logp" # choices=[logp, abs, mse]
     num_neg_samples: int = 50
     sl_sd: float = 0.2 # fixed sl std
     train_ratio: float = 0.8

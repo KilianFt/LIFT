@@ -151,8 +151,8 @@ def main():
         alpha_range=[1., 1.],
     )
     teacher.reset()
-    bc_encoder_state_dict = torch.load(config.models_path / "pretrain_mi_encoder_v5_silu_mse.pt")
-    bc_critic_state_dict = torch.load(config.models_path / "pretrain_mi_critic_v5_silu_mse.pt")
+    bc_encoder_state_dict = torch.load(config.models_path / "pretrain_mi_encoder.pt")
+    bc_critic_state_dict = torch.load(config.models_path / "pretrain_mi_critic.pt")
     
     trainer = MITrainer(config, env, teacher, supervise=True)
     trainer.encoder.load_state_dict(bc_encoder_state_dict)

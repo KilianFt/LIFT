@@ -196,6 +196,7 @@ class MITrainer(L.LightningModule):
         self.pt_beta_3 = config.pretrain.beta_3
         self.ft_beta_1 = config.mi.beta_1
         self.ft_beta_2 = config.mi.beta_2
+        self.entropy_beta = config.mi.entropy_beta
         self.ft_weight = config.mi.ft_weight
         self.pt_weight = config.mi.pt_weight
         self.kl_approx_method = config.mi.kl_approx_method
@@ -282,7 +283,7 @@ class MITrainer(L.LightningModule):
 
         if self.kl_approx_method == "logp":
             # kl = -(log_prior - log_post).mean()
-            kl = -(log_prior + ent).mean()
+            kl = -(log_prior + self.entropy_beta * ent).mean()
         elif self.kl_approx_method == "abs":
             kl = 0.5 * nn.SmoothL1Loss()(log_post, log_prior)
         elif self.kl_approx_method == "mse":
