@@ -91,7 +91,7 @@ class EncoderConfig(BaseModel):
     hidden_size: int = 256
     n_layers: int = 3
     dropout: float = 0.1
-    activation: str = "relu"  # "relu", "tanh", "silu", "leaky_relu"
+    activation: str = "silu"  # "relu", "tanh", "silu", "leaky_relu"
 
 
 class SimulatorConfig(BaseModel):
@@ -120,13 +120,14 @@ class PretrainConfig(BaseModel):
     beta_2: float = 0.1 # kl weight
     beta_3: float = 1.0 # sl weight
 
+
 class MIConfig(BaseModel):
     beta_1: float = 1.0 # mi weight, use 0.5 for mse
-    beta_2: float = 1.0 # kl weight
+    beta_2: float = 2.0 # kl weight
     # beta_3: float = 1.0 # sl weight
     ft_weight: float = 1. # finetune loss weight
-    pt_weight: float = .2 # pretrain loss weight
-    kl_approx_method: str = "logp" # choices=[logp, abs, mse]
+    pt_weight: float = 0.5 # pretrain loss weight
+    kl_approx_method: str = "mse" # choices=[logp, abs, mse]
     num_neg_samples: int = 50
     sl_sd: float = 0.2 # fixed sl std
     train_ratio: float = 0.8
@@ -137,7 +138,7 @@ class MIConfig(BaseModel):
     n_steps_rollout: int = 10_000
     random_pertube_prob: float = 0.0
     action_noise: float = 0.0
-    activation: str = "relu"  # "relu", "tanh", "silu", "leaky_relu"
+    activation: str = "silu"  # "relu", "tanh", "silu", "leaky_relu"
 
     # iter mi
     aggregate_data: bool = True
@@ -146,8 +147,6 @@ class MIConfig(BaseModel):
     only_copy_teacher: bool = False
 
     num_sessions: int = 1
-
-    # TODO mode for sl to intended actions
 
 
 class BaseConfig(BaseModel):

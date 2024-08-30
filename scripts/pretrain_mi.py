@@ -10,6 +10,7 @@ from pytorch_lightning.loggers import WandbLogger
 from configs import BaseConfig
 from lift.environments.gym_envs import NpGymEnv
 from lift.environments.emg_envs import EMGEnv
+from lift.environments.teacher_envs import ConditionedTeacher
 from lift.environments.simulator import SimulatorFactory
 from lift.environments.rollout import rollout
 from lift.teacher import load_teacher
@@ -222,7 +223,15 @@ def main():
     L.seed_everything(config.seed)
 
     pt_data_dict = load_data(config)
-    teacher = load_teacher(config)
+    # teacher = load_teacher(config)
+    teacher = load_teacher(config, meta=True, filename="teacher_meta.pt")
+    teacher = ConditionedTeacher(
+        teacher, 
+        noise_range=[0., 0.], 
+        noise_slope_range=[0., 0.], 
+        alpha_range=[1., 1.],
+    )
+    teacher.reset()
     data_path = (config.mad_data_path / config.target_person / "training0").as_posix()
     sim = SimulatorFactory.create_class(
         data_path,

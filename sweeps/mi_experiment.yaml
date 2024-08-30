@@ -5,11 +5,11 @@ metric:
   goal: minimize
 parameters:
   seed:
-    values: [ 10, 56324, 1001, 123 ]
+    values: [ 10, 56324 ] # , 1001, 123
   noise:
-    values: [ 0.0, 0.2, 0.4, 0.6, 0.8, 1.0 ]
+    values: [ 0.0, 0.25, 0.5, 0.75, 1.0 ]
   noise_slope:
-    values: [ 0.0, 0.2, 0.4, 0.6, 0.8, 1.0 ]
+    values: [ 0.0, 0.25, 0.5, 0.75, 1.0 ]
   alpha:
     values: [ 1.0, 3.0 ]
   mi:
@@ -22,7 +22,11 @@ parameters:
         value: 5
       n_steps_rollout:
         value: 2000
-  #     beta_2:
+      beta_2:
+        value: 1.0
   #       values: [ 0., 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0 ]
-  #     pt_weight:
+      pt_weight:
+        value: 0.5
+      kl_approx_method:
+        value: 'mse'
   #       values: [ 0., 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0 ]

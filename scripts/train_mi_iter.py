@@ -28,28 +28,6 @@ from train_mi import get_ft_data, combine_pt_ft_data
 
 logging.basicConfig(level=logging.INFO)
 
-def maybe_rollout(env: EMGEnv, policy: EMGAgent, config: BaseConfig, use_saved=True):
-    rollout_file = config.rollout_data_path / f"mi_rollout_data.pkl"
-    if use_saved and rollout_file.exists():
-        logging.info(f"\nload rollout data from file: {rollout_file}")
-        with open(rollout_file, "rb") as f:
-            data = pickle.load(f)
-    else:
-        logging.info("collecting training data from teacher")
-        data = rollout(
-            env,
-            policy,
-            n_steps=config.mi.n_steps_rollout,
-            sample_mean=True,
-            terminate_on_done=False,
-            reset_on_done=True,
-            random_pertube_prob=config.mi.random_pertube_prob,
-            action_noise=config.mi.action_noise,
-        )
-        rollout_file.parent.mkdir(exist_ok=True, parents=True)
-        with open(rollout_file, "wb") as f:
-            pickle.dump(data, f)
-    return data
 
 def validate_data(data, logger):
     assert data["info"]["intended_action"].shape == data["act"].shape
@@ -173,8 +151,8 @@ def main():
         alpha_range=[1., 1.],
     )
     teacher.reset()
-    bc_encoder_state_dict = torch.load(config.models_path / "pretrain_mi_encoder.pt")
-    bc_critic_state_dict = torch.load(config.models_path / "pretrain_mi_critic.pt")
+    bc_encoder_state_dict = torch.load(config.models_path / "pretrain_mi_encoder_v5_silu_mse.pt")
+    bc_critic_state_dict = torch.load(config.models_path / "pretrain_mi_critic_v5_silu_mse.pt")
     
     trainer = MITrainer(config, env, teacher, supervise=True)
     trainer.encoder.load_state_dict(bc_encoder_state_dict)
@@ -198,7 +176,16 @@ def main():
         emg_env = EMGEnv(env, user, sim)
         emg_policy = EMGAgent(trainer.encoder, emg_mu, emg_sd)
 
-        data = maybe_rollout(emg_env, emg_policy, config, use_saved=False)
+        data = rollout(
+            emg_env,
+            emg_policy,
+            n_steps=config.mi.n_steps_rollout,
+            sample_mean=True,
+            terminate_on_done=False,
+            reset_on_done=True,
+            random_pertube_prob=config.mi.random_pertube_prob,
+            action_noise=config.mi.action_noise,
+        )
         validate_data(data, logger)
         ft_data = get_ft_data(data, emg_mu, emg_sd)
         append_dataset(dataset, ft_data)
