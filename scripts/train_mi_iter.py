@@ -45,19 +45,19 @@ def validate_data(data, logger):
 
     return mean_rwd, std_rwd, mae
 
-def validate(env, teacher, sim, encoder, mu, sd, logger):
-    emg_env = EMGEnv(env, teacher, sim)
-    agent = EMGAgent(encoder, mu, sd)
-    data = rollout(
-        emg_env, 
-        agent, 
-        n_steps=3000, 
-        sample_mean=True,
-        terminate_on_done=False,
-        reset_on_done=True,
-    )
-    mean_rwd, std_rwd, mae = validate_data(data, logger)
-    return mean_rwd, std_rwd, mae
+# def validate(env, teacher, sim, encoder, mu, sd, logger):
+#     emg_env = EMGEnv(env, teacher, sim)
+#     agent = EMGAgent(encoder, mu, sd)
+#     data = rollout(
+#         emg_env, 
+#         agent, 
+#         n_steps=3000, 
+#         sample_mean=True,
+#         terminate_on_done=False,
+#         reset_on_done=True,
+#     )
+#     mean_rwd, std_rwd, mae = validate_data(data, logger)
+#     return mean_rwd, std_rwd, mae
 
 
 def train(data, model, logger, config: BaseConfig):
@@ -223,7 +223,21 @@ def main():
         user.set_meta_vars(user_meta_vars)
 
     # test once at the end
-    validate(env, teacher, sim, trainer.encoder, emg_mu, emg_sd, logger)
+    # validate(env, teacher, sim, trainer.encoder, emg_mu, emg_sd, logger)
+    emg_env = EMGEnv(env, user, sim)
+    emg_policy = EMGAgent(trainer.encoder, emg_mu, emg_sd)
+
+    data = rollout(
+        emg_env,
+        emg_policy,
+        n_steps=config.mi.n_steps_rollout,
+        sample_mean=True,
+        terminate_on_done=False,
+        reset_on_done=True,
+        random_pertube_prob=config.mi.random_pertube_prob,
+        action_noise=config.mi.action_noise,
+    )
+    validate_data(data, logger)
 
     # torch.save(trainer, config.models_path / 'mi_iter.pt')
 
@@ -231,45 +245,4 @@ def main():
         wandb.finish()
 
 if __name__ == "__main__":
-    # import argparse
-    # parser = argparse.ArgumentParser()
-    # parser.add_argument("--sweep", action="store_true")
-    # parser.add_argument("--baseline", action="store_true")
-    # args = parser.parse_args()
-    
-    # if args.sweep:
-    #     import itertools
-    #     # seeds = [100, 42, 123, 789]
-    #     seeds = [100]
-    #     # alphas = [1.0, 3.0]
-    #     alphas = [1.0]
-
-    #     # teacher_noises = np.linspace(0.001, .9, 5)
-    #     # teacher_noise_slopes = np.linspace(0.001, .9, 5)
-    #     teacher_noises = np.linspace(0.9, .9, 5)
-    #     teacher_noise_slopes = np.linspace(0.001, .9, 5)
-    #     combinations = itertools.product(alphas, teacher_noises, teacher_noise_slopes, seeds)
-
-    #     for combination in combinations:
-    #         constant_alpha, constant_noise, constant_noise_slope, seed = combination
-    #         run_name = "{}_sweep_kl05_alpha_{}_noise_{}_slope_{}_{}".format(
-    #             "mi" if not args.baseline else "baseline",
-    #             constant_alpha,
-    #             constant_noise,
-    #             constant_noise_slope,
-    #             seed,
-    #         )
-    #         kwargs = {
-    #             "alpha_range": [constant_alpha]*2,
-    #             "noise_range": [constant_noise]*2,
-    #             "noise_slope_range": [constant_noise_slope]*2,
-    #             "tag": "mi_sweep_kl05",
-    #             "run_name": run_name,
-    #             "seed": seed,
-    #         }
-    #         if args.baseline:
-    #             kwargs["encoder"] = {"beta_1": 0.}
-    #         main(kwargs)
-    #         break
-    # else:
     main()
