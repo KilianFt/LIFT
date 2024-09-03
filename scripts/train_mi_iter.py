@@ -130,7 +130,7 @@ def main():
     wandb.config.update(config.model_dump(), allow_val_change=True)
 
     # init user with known noise and alpha for controlled experiment
-    user = load_teacher(config, meta=True)
+    user = load_teacher(config, meta=True, filename="teacher_meta_3_layer_relu.pt")
     user = ConditionedTeacher(
         user,
         noise_range=config.noise_range,
@@ -142,8 +142,7 @@ def main():
     user.reset()
 
     # load models
-    # teacher = load_teacher(config)
-    teacher = load_teacher(config, meta=True, filename="teacher_meta.pt")
+    teacher = load_teacher(config, meta=True, filename="teacher_meta_3_layer_relu.pt")
     teacher = ConditionedTeacher(
         teacher, 
         noise_range=[0., 0.], 

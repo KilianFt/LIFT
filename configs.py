@@ -136,7 +136,7 @@ class MIConfig(BaseModel):
     epochs: int = 20
     max_steps: int = 2000
     lr: float = 1.0e-3
-    n_steps_rollout: int = 10_000
+    n_steps_rollout: int = 2_000
     random_pertube_prob: float = 0.0
     action_noise: float = 0.0
     activation: str = "silu"  # "relu", "tanh", "silu", "leaky_relu"
@@ -147,7 +147,7 @@ class MIConfig(BaseModel):
     # for comparison
     only_copy_teacher: bool = False
 
-    num_sessions: int = 1
+    num_sessions: int = 5
 
 
 class BaseConfig(BaseModel):
