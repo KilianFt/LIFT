@@ -39,8 +39,8 @@ class TeacherConfig(BaseModel):
     grad_clip: float | None = 1.0
     
     # nets
-    hidden_sizes: list = [256, 256]
-    activation: str = "silu"
+    hidden_sizes: list = [256, 256, 256]
+    activation: str = "relu"
     default_policy_scale: float = 1.0
     scale_lb: float = 0.1
     device: str = "cpu"
@@ -49,7 +49,7 @@ class TeacherConfig(BaseModel):
     eval_iter: int = 5000
 
     teacher_filename: str = "teacher.pt"
-    meta_teacher_filename: str = "teacher_meta.pt"
+    meta_teacher_filename: str = "teacher_meta_3_layer_relu.pt"
     
 
 class OfflineRLConfig(BaseModel):
@@ -125,7 +125,7 @@ class MIConfig(BaseModel):
     beta_1: float = 1.0 # mi weight, use 0.5 for mse
     beta_2: float = 0.1 # kl weight
     # beta_3: float = 1.0 # sl weight
-    entropy_beta: float = 0.1
+    entropy_beta: float = 0.01
     ft_weight: float = 1. # finetune loss weight
     pt_weight: float = 0.5 # pretrain loss weight
     kl_approx_method: str = "logp" # choices=[logp, abs, mse]
