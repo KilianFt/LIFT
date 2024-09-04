@@ -173,7 +173,7 @@ def main():
     L.seed_everything(config.seed)
 
     # teacher = load_teacher(config)
-    teacher = load_teacher(config, meta=True, filename="teacher_meta.pt")
+    teacher = load_teacher(config, meta=True, filename="teacher_meta_3_layer_relu.pt")
     teacher = ConditionedTeacher(
         teacher, 
         noise_range=[0., 0.], 
