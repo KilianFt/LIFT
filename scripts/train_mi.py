@@ -70,8 +70,9 @@ def combine_pt_ft_data(pt_data: dict, ft_data: dict):
         ft_len = len(ft_data["emg_obs"])
 
         if pt_len >= ft_len:
-            idx_train = torch.randint(0, ft_len, (pt_train_len,))
-            idx_val = torch.randint(0, ft_len, (pt_val_len,))
+            idxs = torch.randint(0, ft_len, (pt_len,))
+            idx_train = idxs[:pt_train_len]
+            idx_val = idxs[pt_train_len:]
             data = pt_data
             data["train"]["obs"] = ft_data["obs"][idx_train]
             data["train"]["emg_obs"] = ft_data["emg_obs"][idx_train]
@@ -80,8 +81,30 @@ def combine_pt_ft_data(pt_data: dict, ft_data: dict):
             data["val"]["emg_obs"] = ft_data["emg_obs"][idx_val]
             data["val"]["intended_action"] = ft_data["intended_action"][idx_val]
         elif pt_len < ft_len:
-            idx = torch.randint(0, pt_len, (ft_len,))
-            raise NotImplementedError
+            train_val_ratio = pt_train_len / pt_val_len
+            n_samples_val = int(ft_len / (1 + train_val_ratio))
+            n_samples_train = ft_len - n_samples_val
+
+            pt_idxs_train = torch.randint(0, pt_train_len, (n_samples_train,))
+            pt_idxs_val = torch.randint(0, pt_val_len, (n_samples_val,))
+            ft_idxs = torch.randint(0, ft_len, (ft_len,))
+            data = {
+                "train": {
+                    "pt_emg_obs": pt_data["train"]["pt_emg_obs"][pt_idxs_train],
+                    "pt_act": pt_data["train"]["pt_act"][pt_idxs_train],
+                    "obs": ft_data["obs"][ft_idxs[:n_samples_train]],
+                    "emg_obs": ft_data["emg_obs"][ft_idxs[:n_samples_train]],
+                    "intended_action": ft_data["intended_action"][ft_idxs[:n_samples_train]],
+                },
+                "val": {
+                    "pt_emg_obs": pt_data["val"]["pt_emg_obs"][pt_idxs_val],
+                    "pt_act": pt_data["val"]["pt_act"][pt_idxs_val],
+                    "obs": ft_data["obs"][ft_idxs[n_samples_train:]],
+                    "emg_obs": ft_data["emg_obs"][ft_idxs[n_samples_train:]],
+                    "intended_action": ft_data["intended_action"][ft_idxs[n_samples_train:]],
+                },
+            }
+
     else:
         pt_len = len(pt_data["pt_emg_obs"])
         ft_len = len(ft_data["emg_obs"])

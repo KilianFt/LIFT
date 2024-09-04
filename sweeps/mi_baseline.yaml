@@ -23,11 +23,11 @@ parameters:
       n_steps_rollout:
         values: [ 5_000, 10_000 ]
       beta_2:
-        values: [ 0.1, 1.0 ]
+        value: 1.0
       pt_weight:
         value: 0.5
       kl_approx_method:
         value: 'logp'
       only_copy_teacher:
-        value: False
+        value: True
         # values: [ True, False]
