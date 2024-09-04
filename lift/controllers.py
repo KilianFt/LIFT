@@ -196,7 +196,7 @@ class MITrainer(L.LightningModule):
         self.pt_beta_3 = config.pretrain.beta_3
         self.ft_beta_1 = config.mi.beta_1
         self.ft_beta_2 = config.mi.beta_2
-        self.entropy_beta = config.mi.entropy_beta / self.ft_beta_2 # adjust scale according to beta_2
+        self.entropy_beta = config.mi.entropy_beta / self.ft_beta_2 if self.ft_beta_2 > 0. else config.mi.entropy_beta # adjust scale according to beta_2
         self.ft_weight = config.mi.ft_weight
         self.pt_weight = config.mi.pt_weight
         self.kl_approx_method = config.mi.kl_approx_method
