@@ -123,7 +123,7 @@ class PretrainConfig(BaseModel):
 
 class MIConfig(BaseModel):
     beta_1: float = 1.0 # mi weight, use 0.5 for mse
-    beta_2: float = 0.1 # kl weight
+    beta_2: float = 0.5 # kl weight
     # beta_3: float = 1.0 # sl weight
     entropy_beta: float = 0.01
     ft_weight: float = 1. # finetune loss weight
