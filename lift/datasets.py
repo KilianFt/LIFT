@@ -24,8 +24,18 @@ class EMGSLDataset(Dataset):
             else torch.from_numpy(v).to(torch.float32) 
             for k, v in data_dict.items()
         }
+    """Supervised learning dataset"""
+    def __init__(self, data_dict):
+        assert isinstance(data_dict, dict), "data must be a dictionary"
+        self.data_keys = list(data_dict.keys())
+        self.data = {
+            k: v if isinstance(v, torch.Tensor) 
+            else torch.from_numpy(v).to(torch.float32) 
+            for k, v in data_dict.items()
+        }
 
     def __len__(self):
+        return len(self.data[self.data_keys[0]])
         return len(self.data[self.data_keys[0]])
     
     def __getitem__(self, idx):

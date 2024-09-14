@@ -94,6 +94,7 @@ class EncoderConfig(BaseModel):
     activation: str = "silu"  # "relu", "tanh", "silu", "leaky_relu"
 
 
+
 class SimulatorConfig(BaseModel):
     parametric: bool = False
     interpolation: str = "weighted" # choices=["weighted", "random"]
@@ -205,6 +206,9 @@ class BaseConfig(BaseModel):
     teacher: TeacherConfig = TeacherConfig()
     encoder: EncoderConfig = EncoderConfig()
     simulator: SimulatorConfig = SimulatorConfig()
+    pretrain: PretrainConfig = PretrainConfig()
+    mi: MIConfig = MIConfig()
+    offline_rl: OfflineRLConfig = OfflineRLConfig()
     pretrain: PretrainConfig = PretrainConfig()
     mi: MIConfig = MIConfig()
     offline_rl: OfflineRLConfig = OfflineRLConfig()
