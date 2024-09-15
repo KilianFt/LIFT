@@ -8,9 +8,9 @@ import gymnasium as gym
 import numpy as np
 
 from lift.environments.gym_envs import NpGymEnv
+from lift.environments.teacher_envs import ConditionedTeacher
 from lift.environments.simulator import Simulator, SimulatorFactory
 from lift.rl.sac import SAC
-from lift.teacher import ConditionedTeacher
 
 
 class EMGEnv(gym.Wrapper):
@@ -28,7 +28,7 @@ class EMGEnv(gym.Wrapper):
             self.observation_space["emg_observation"] = gym.spaces.Box(
                 low=-10,
                 high=10,
-                shape=(emg_simulator.num_channels * 4,),
+                shape=(emg_simulator.num_channels * emg_simulator.num_features,),
                 dtype=np.float64
             )
         else:
@@ -40,7 +40,8 @@ class EMGEnv(gym.Wrapper):
             )
 
     def _obs_to_emg(self, obs):
-        teacher_action = self.teacher.sample_action(obs).reshape(1, -1)
+        """DEBUG: set sample mean to verify"""
+        teacher_action = self.teacher.sample_action(obs, sample_mean=True).reshape(1, -1)
         emg = self.emg_simulator(teacher_action)[0].numpy() # last action entry not used in fetch env
         return emg, teacher_action
     
@@ -57,9 +58,9 @@ class EMGEnv(gym.Wrapper):
         obs, rwd, done, info = self.env.step(action)
         obs["emg_observation"], next_teacher_action = self._obs_to_emg(obs)
 
-        info["teacher_action"] = self.teacher_action.flatten().copy()
+        info["intended_action"] = self.teacher_action.flatten().copy()
         if isinstance(self.teacher, ConditionedTeacher):
-            info["teacher_meta_vars"] = self.teacher.meta_vars.copy()
+            info["teacher_meta_vars"] = self.teacher.get_meta_vars()
         self.teacher_action = next_teacher_action
         return obs, rwd, done, info
     
@@ -81,7 +82,7 @@ class EMGTransform(Transform):
         >>> env.append_transform(t_emg)
         >>> check_env_specs(env)
         >>> data = env.reset()
-        >>> print(data["emg])
+        >>> print(data["emg"])
 
     """
     def __init__(self, teacher, simulator: Simulator, *args, **kwargs):
@@ -109,7 +110,7 @@ class EMGTransform(Transform):
 if __name__ == '__main__':
     from torchrl.envs.utils import check_env_specs, step_mdp
     from configs import TeacherConfig, BaseConfig
-    from lift.rl.utils import gym_env_maker, apply_env_transforms
+    from lift.rl.env_utils import gym_env_maker, apply_env_transforms
 
     config = BaseConfig()
     teach_config = TeacherConfig()

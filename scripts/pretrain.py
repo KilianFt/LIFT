@@ -12,6 +12,8 @@ from lift.environments.rollout import rollout
 from lift.teacher import load_teacher
 
 from lift.datasets import (
+    weighted_per_person_augmentation,
+    weighted_augmentation,
     load_all_mad_datasets, 
     mad_groupby_labels,
     mad_labels_to_actions,
@@ -82,26 +84,11 @@ def load_fake_data(config):
 
     return emg_features, actions
 
-def load_data(config: BaseConfig, load_fake=False):
-    if load_fake:
-        return load_fake_data(config)
-
-    mad_windows, mad_labels = load_all_mad_datasets(
-        config.mad_base_path.as_posix(),
-        num_channels=config.n_channels,
-        emg_range=config.emg_range,
-        window_size=config.window_size,
-        window_overlap=config.window_overlap,
-        desired_labels=config.desired_mad_labels,
-        skip_person='Female0',
-        return_tensors=True,
-    )
-    mad_features = compute_features(mad_windows)
-    mad_actions = mad_labels_to_actions(
-        mad_labels, recording_strength=config.simulator.recording_strength,
-    )
-
-    if config.pretrain.num_augmentation > 0:
+def load_augmentation(mad_windows, mad_labels, mad_actions, config):
+    if config.simulator.interpolation == "weighted":
+        # sample_features, sample_actions, _, _ = weighted_per_person_augmentation(config)
+        sample_features, sample_actions = weighted_augmentation(mad_windows, mad_actions, config)
+    elif config.simulator.interpolation == "random":
         window_list, label_list = mad_groupby_labels(mad_windows, mad_labels)
         actions_list = mad_labels_to_actions(
             label_list, recording_strength=config.simulator.recording_strength,
@@ -114,9 +101,43 @@ def load_data(config: BaseConfig, load_fake=False):
             reduction=config.simulator.reduction,
         )
         sample_features = compute_features(sample_windows)
+    else:
+        raise NotImplementedError(f"Interpolation {config.simulator.interpolation} not found")
+    
+    return sample_features, sample_actions
 
-        features = torch.cat([mad_features, sample_features], dim=0)
-        actions = torch.cat([mad_actions, sample_actions], dim=0)
+def load_data(config: BaseConfig, load_fake=False):
+    if load_fake:
+        return load_fake_data(config)
+
+    mad_windows, mad_labels = load_all_mad_datasets(
+        config.mad_base_path.as_posix(),
+        num_channels=config.n_channels,
+        emg_range=config.emg_range,
+        window_size=config.window_size,
+        window_overlap=config.window_overlap,
+        desired_labels=config.desired_mad_labels,
+        skip_person=config.target_person,
+        return_tensors=True,
+    )
+    if config.simulator.interpolation == "weighted":
+        mad_features = compute_features(mad_windows, feature_list=['MAV'])
+    else:
+        mad_features = compute_features(mad_windows)
+    mad_actions = mad_labels_to_actions(
+        mad_labels, recording_strength=config.simulator.recording_strength,
+    )
+
+    if config.pretrain.num_augmentation > 0:
+        sample_features, sample_actions = load_augmentation(mad_windows, mad_labels,
+                                                            mad_actions, config)
+
+        if config.pretrain.train_subset == "interpolation":
+            features = sample_features
+            actions = sample_actions
+        else:
+            features = torch.cat([mad_features, sample_features], dim=0)
+            actions = torch.cat([mad_actions, sample_actions], dim=0)
     else:
         features, actions = mad_features, mad_actions
 
@@ -137,7 +158,7 @@ def main():
     
     # validation setup
     teacher = load_teacher(config)
-    data_path = (config.mad_data_path / "Female0"/ "training0").as_posix()
+    data_path = (config.mad_data_path / config.target_person / "training0").as_posix()
     sim = SimulatorFactory.create_class(
         data_path,
         config,
@@ -145,8 +166,8 @@ def main():
     )
         
     env = NpGymEnv(
-        "FetchReachDense-v2", 
-        cat_obs=True, 
+        "FetchReachDense-v2",
+        cat_obs=True,
         cat_keys=config.teacher.env_cat_keys,
     )
 

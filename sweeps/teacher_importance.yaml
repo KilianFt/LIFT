@@ -1,0 +1,22 @@
+program: LIFT/scripts/train_mi.py
+method: grid
+metric:
+  name: encoder_reward
+  goal: maximize
+parameters:
+  seed:
+    values: [ 1001, 123, 10, 56324 ]
+  mi:
+    parameters:
+      beta_2:
+        values: [ 0.0, 0.1, 0.25, 0.5, 0.75, 1.0 ]
+      pt_weight:
+        values: [ 0.0, 0.25, 0.5, 0.75, 1.0 ]
+      epochs:
+        value: 20
+      max_steps:
+        value: 10_000
+      num_sessions:
+        value: 1
+      n_steps_rollout:
+        value: 10_000

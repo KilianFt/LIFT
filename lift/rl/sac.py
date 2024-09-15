@@ -37,7 +37,8 @@ class SAC(AlgoBase):
             alpha_init=self.config.alpha_init,
         )
     
-    def train(self, logger=None):
+    # def train(self, logger=None):
+    def train_agent(self, logger=None):
         # Create off-policy collector
         collector = make_collector(self.config, self.train_env, self.model["policy"])
 
@@ -93,20 +94,33 @@ class SAC(AlgoBase):
                     q_loss = loss_td["loss_qvalue"]
                     alpha_loss = loss_td["loss_alpha"]
 
+                    grad_clip = self.config.grad_clip
                     # Update actor
-                    self.optimizers["actor"].zero_grad()
                     actor_loss.backward()
+                    if grad_clip is not None:
+                        torch.nn.utils.clip_grad_norm_(
+                            self.optimizers["actor"].param_groups[0]["params"], grad_clip
+                        )
                     self.optimizers["actor"].step()
+                    self.optimizers["actor"].zero_grad() 
 
                     # Update critic
-                    self.optimizers["critic"].zero_grad()
                     q_loss.backward()
+                    if grad_clip is not None:
+                        torch.nn.utils.clip_grad_norm_(
+                            self.optimizers["critic"].param_groups[0]["params"], grad_clip
+                        )
                     self.optimizers["critic"].step()
+                    self.optimizers["critic"].zero_grad()                    
 
                     # Update alpha
-                    self.optimizers["alpha"].zero_grad()
                     alpha_loss.backward()
+                    if grad_clip is not None:
+                        torch.nn.utils.clip_grad_norm_(
+                            self.optimizers["alpha"].param_groups[0]["params"], grad_clip
+                        )
                     self.optimizers["alpha"].step()
+                    self.optimizers["alpha"].zero_grad()
 
                     losses[i] = loss_td.select(
                         "loss_actor", "loss_qvalue", "loss_alpha"
@@ -180,6 +194,6 @@ if __name__ == '__main__':
     model = SAC(config, train_env, eval_env)
 
     logger = None
-    model.train(logger=logger)
+    model.train_agent(logger=logger)
 
     model.save('sac.pth')

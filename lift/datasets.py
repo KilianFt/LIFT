@@ -1,5 +1,5 @@
 import os
-import re
+import logging
 import subprocess
 import time
 from pathlib import Path
@@ -9,8 +9,10 @@ import torch
 from tensordict import TensorDict
 from torch.utils.data import Dataset, DataLoader, random_split
 from torch.nn.utils.rnn import pad_sequence
-from libemg.utils import get_windows
 from libemg.feature_extractor import FeatureExtractor
+from sklearn.preprocessing import LabelEncoder
+
+from lift.environments.interpolation import WeightedInterpolator
 
 class EMGSLDataset(Dataset):
     """Supervised learning dataset"""
@@ -22,8 +24,18 @@ class EMGSLDataset(Dataset):
             else torch.from_numpy(v).to(torch.float32) 
             for k, v in data_dict.items()
         }
+    """Supervised learning dataset"""
+    def __init__(self, data_dict):
+        assert isinstance(data_dict, dict), "data must be a dictionary"
+        self.data_keys = list(data_dict.keys())
+        self.data = {
+            k: v if isinstance(v, torch.Tensor) 
+            else torch.from_numpy(v).to(torch.float32) 
+            for k, v in data_dict.items()
+        }
 
     def __len__(self):
+        return len(self.data[self.data_keys[0]])
         return len(self.data[self.data_keys[0]])
     
     def __getitem__(self, idx):
@@ -48,6 +60,17 @@ class EMGSeqDataset(Dataset):
         out = np.concatenate([obs, act], axis=-1)
         out = torch.from_numpy(out).to(torch.float32)
         return out
+
+
+def get_samples_per_group(windows, labels, num_samples_per_group=1):
+    mad_windows_group, mad_labels_group = mad_groupby_labels(windows, labels)
+    sample_idx = [torch.randint(0, len(g), size=(num_samples_per_group,)) for g in mad_windows_group]
+    mad_windows_group = [g[sample_idx[i]] for i, g in enumerate(mad_windows_group)]
+    mad_labels_group = [l * torch.ones_like(sample_idx[l]) for l in mad_labels_group]
+
+    new_windows = torch.cat(mad_windows_group, dim=0)
+    new_labels = torch.cat(mad_labels_group, dim=0)
+    return new_windows, new_labels
 
 
 def format_seq_data(data: dict) -> list[dict]:
@@ -82,17 +105,23 @@ def seq_collate_fn(batch):
 
 """TODO: figure out better way to handle bc and sequence data"""
 def get_dataloaders(data_dict, is_seq=False, train_ratio=0.8, batch_size=32, num_workers=4):
-    if not is_seq:
-        dataset = EMGSLDataset(data_dict)
+
+    if "val" in data_dict.keys():
+        train_dataset = EMGSLDataset(data_dict["train"])
+        val_dataset = EMGSLDataset(data_dict["val"])
         collate_fn = None
     else:
-        seq_data = format_seq_data(data_dict)
-        dataset = EMGSeqDataset(seq_data)
-        collate_fn = seq_collate_fn
+        if not is_seq:
+            dataset = EMGSLDataset(data_dict)
+            collate_fn = None
+        else:
+            seq_data = format_seq_data(data_dict)
+            dataset = EMGSeqDataset(seq_data)
+            collate_fn = seq_collate_fn
 
-    train_size = int(train_ratio * len(dataset))
-    val_size = len(dataset) - train_size
-    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+        train_size = int(train_ratio * len(dataset))
+        val_size = len(dataset) - train_size
+        train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
     train_dataloader = DataLoader(
         train_dataset, 
@@ -238,6 +267,8 @@ def load_mad_dataset(
     window_overlap: int = 50, 
     desired_labels: list = None,
     skip_person: list = None,
+    verbose: bool = True,
+    cutoff_n_outer_samples: int = 0
 ):
     """Load all person trials in mad dataset in either pretrain or eval path
     
@@ -251,11 +282,12 @@ def load_mad_dataset(
 
     dataset = {}
     for trial in trial_names:
-        trial_dataset = {'emg': [], 'labels': []}
+        trial_dataset = {'emg': [], 'labels': [], 'person_id': []}
         for person_dir in person_folders:
             # skip loading data for a certain person
-            if skip_person is not None and person_dir == skip_person:
-                print(f'skipping {skip_person}')
+            if skip_person is not None and person_dir in skip_person:
+                if verbose:
+                    logging.info(f'Skipping {skip_person}')
                 continue
             
             trial_path = data_path + person_dir + '/' + trial
@@ -265,9 +297,12 @@ def load_mad_dataset(
                 emg_range=emg_range, 
                 desired_labels=desired_labels,
             )
+            # take away n samples
+            if cutoff_n_outer_samples > 0:
+                emg = [e[cutoff_n_outer_samples:-cutoff_n_outer_samples,:] for e in emg]
             windows = [
                 make_overlap_windows(
-                    e, 
+                    e,
                     window_size=window_size, 
                     window_overlap=window_overlap,
                 ) for e in emg
@@ -276,9 +311,12 @@ def load_mad_dataset(
             
             trial_dataset['emg'].append(np.concatenate(windows))
             trial_dataset['labels'].append(np.concatenate(labels))
+            trial_dataset['person_id'].append([f"{trial}_{person_dir}"] * len(trial_dataset["labels"][-1]))
         
-        trial_dataset['emg'] = np.concatenate(trial_dataset['emg'])
-        trial_dataset['labels'] = np.concatenate(trial_dataset['labels']).astype(int)
+        if len(trial_dataset['emg']) > 0:
+            trial_dataset['emg'] = np.concatenate(trial_dataset['emg'])
+            trial_dataset['labels'] = np.concatenate(trial_dataset['labels']).astype(int)
+            trial_dataset['person_id'] = sum(trial_dataset['person_id'], [])
         dataset[trial] = trial_dataset
     return dataset
 
@@ -290,7 +328,9 @@ def load_all_mad_datasets(
     window_overlap: int = 50, 
     desired_labels: list = None,
     skip_person: list = None,
-    return_tensors: bool = False, 
+    return_tensors: bool = False,
+    verbose: bool = True,
+    cutoff_n_outer_samples: int = 0,
 ):
     """Load all mad pretain and eval data
     
@@ -310,6 +350,8 @@ def load_all_mad_datasets(
         window_overlap=window_overlap,
         desired_labels=desired_labels,
         skip_person=skip_person,
+        verbose=verbose,
+        cutoff_n_outer_samples=cutoff_n_outer_samples,
     )
     eval_dataset = load_mad_dataset(
         eval_path, 
@@ -319,27 +361,66 @@ def load_all_mad_datasets(
         window_overlap=window_overlap,
         desired_labels=desired_labels,
         skip_person=skip_person,
+        verbose=verbose,
+        cutoff_n_outer_samples=cutoff_n_outer_samples,
     )
 
-    mad_windows = np.concatenate([
-        train_dataset['training0']['emg'],
-        eval_dataset['training0']['emg'],
-        eval_dataset['Test0']['emg'],
-        eval_dataset['Test1']['emg'],
-    ])
+    if len(train_dataset['training0']['emg']) < 1:
+        mad_windows = np.concatenate([
+            eval_dataset['training0']['emg'],
+            eval_dataset['Test0']['emg'],
+            eval_dataset['Test1']['emg'],
+        ])
+        mad_labels = np.concatenate([
+            eval_dataset['training0']['labels'],
+            eval_dataset['Test0']['labels'],
+            eval_dataset['Test1']['labels'],
+        ])
+        mad_person_id = sum(
+            [
+                eval_dataset['training0']['person_id'],
+                eval_dataset['Test0']['person_id'],
+                eval_dataset['Test0']['person_id'],
+            ], []
+        )
+    elif len(eval_dataset['training0']['emg']) < 1:
+        mad_windows = np.concatenate([
+            train_dataset['training0']['emg'],
+        ])
+        mad_labels = np.concatenate([
+            train_dataset['training0']['labels'],
+        ])
+        mad_person_id = train_dataset['training0']['person_id']
+    else:
+        mad_windows = np.concatenate([
+            train_dataset['training0']['emg'],
+            eval_dataset['training0']['emg'],
+            eval_dataset['Test0']['emg'],
+            eval_dataset['Test1']['emg'],
+        ])
+        mad_labels = np.concatenate([
+            train_dataset['training0']['labels'],
+            eval_dataset['training0']['labels'],
+            eval_dataset['Test0']['labels'],
+            eval_dataset['Test1']['labels'],
+        ])
+        mad_person_id = sum(
+            [
+                train_dataset['training0']['person_id'],
+                eval_dataset['training0']['person_id'],
+                eval_dataset['Test0']['person_id'],
+                eval_dataset['Test0']['person_id'],
+            ], []
+        )
+    mad_person_id = LabelEncoder().fit_transform(mad_person_id)
 
-    mad_labels = np.concatenate([
-        train_dataset['training0']['labels'],
-        eval_dataset['training0']['labels'],
-        eval_dataset['Test0']['labels'],
-        eval_dataset['Test1']['labels'],
-    ])
-
-    print("MAD dataset loaded")
+    if verbose:
+        logging.info("MAD dataset loaded")
     if return_tensors:
         mad_windows = torch.tensor(mad_windows, dtype=torch.float32)
         mad_labels = torch.tensor(mad_labels)
-    return mad_windows, mad_labels
+        mad_person_id = torch.tensor(mad_person_id)
+    return mad_windows, mad_labels, mad_person_id
 
 def mad_groupby_labels(emg: np.array, labels: np.array):
     """Group emg into list according to labels
@@ -460,6 +541,76 @@ def mad_augmentation(
     sample_emg = interpolate_emg(base_emg, base_actions, sample_actions, reduction)
     
     return sample_emg, sample_actions
+
+def weighted_augmentation(mad_windows, mad_actions, config):
+    mad_features = compute_features(mad_windows, feature_list = ['MAV'])
+    interpolator = WeightedInterpolator(mad_features, mad_actions,
+                                        k=config.simulator.k,
+                                        sample=config.simulator.sample)
+
+    if config.pretrain.augmentation_distribution == 'uniform':
+        sample_actions = torch.rand(config.pretrain.num_augmentation,
+                                    config.action_size) * 2 - 1
+    elif config.pretrain.augmentation_distribution == 'normal':
+        sample_actions = torch.normal(0, .5, (config.pretrain.num_augmentation,
+                                                config.action_size)).clip(-1, 1)
+
+    sample_features = interpolator(sample_actions)
+    return sample_features, sample_actions
+
+def weighted_per_person_augmentation(config):
+    mad_features = None
+    mad_actions = None
+    sample_features = None
+    sample_actions = None
+
+    people_list = [f"Female{i}" for i in range(10)] + [f"Male{i}" for i in range(16)]
+    people_list = [p for p in people_list if not p == config.target_person]
+
+    aug_per_person = config.pretrain.num_augmentation // len(people_list)
+
+    for p in people_list:
+        other_list = [o_p for o_p in people_list if not o_p == p]
+        person_windows, person_labels = load_all_mad_datasets(
+            config.mad_base_path.as_posix(),
+            num_channels=config.n_channels,
+            emg_range=config.emg_range,
+            window_size=config.window_size,
+            window_overlap=config.window_overlap,
+            desired_labels=config.desired_mad_labels,
+            skip_person=other_list,
+            return_tensors=True,
+            verbose=False,
+        )
+
+        person_features = compute_features(person_windows, feature_list = ['MAV'])
+        person_actions = mad_labels_to_actions(
+                person_labels, recording_strength=config.simulator.recording_strength,
+            )
+
+        p_interpolator = WeightedInterpolator(person_features, person_actions,
+                                              k=config.simulator.k)
+
+        if config.pretrain.augmentation_distribution == 'uniform':
+            p_sample_action = torch.rand(aug_per_person,
+                                        config.action_size) * 2 - 1
+        elif config.pretrain.augmentation_distribution == 'normal':
+            p_sample_action = torch.normal(0, .5, (aug_per_person,
+                                                  config.action_size)).clip(-1, 1)
+
+        p_sample_features = p_interpolator(p_sample_action)
+
+        if mad_features is None:
+            mad_features = person_features
+            mad_actions = person_actions
+            sample_features = p_sample_features
+            sample_actions = p_sample_action
+        else:
+            mad_features = torch.cat((mad_features, person_features), dim=0)
+            mad_actions = torch.cat((mad_actions, person_actions), dim=0)
+            sample_features = torch.cat((sample_features, p_sample_features), dim=0)
+            sample_actions = torch.cat((sample_actions, p_sample_action), dim=0)
+        return sample_features, sample_actions, mad_features, mad_actions
 
 if __name__ == "__main__":
     from configs import BaseConfig

@@ -77,24 +77,27 @@ class CQL(AlgoBase):
             # entropy
 
             # choose to add bc reqularization or not
-            actor_loss = loss["loss_actor"]# + loss["loss_actor_bc"]
+            actor_loss = loss["loss_actor"] + self.bc_regularization * loss["loss_actor_bc"]
             q_loss = loss["loss_cql"] + self.bellman_scaling * loss["loss_qvalue"]
             alpha_loss = loss["loss_alpha"]
 
             # Update actor
-            self.optimizers["actor"].zero_grad()
             actor_loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.optimizers["actor"].param_groups[0]["params"], 1.0)
             self.optimizers["actor"].step()
+            self.optimizers["actor"].zero_grad()
 
             # Update critic
-            self.optimizers["critic"].zero_grad()
             q_loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.optimizers["critic"].param_groups[0]["params"], 1.0)
             self.optimizers["critic"].step()
+            self.optimizers["critic"].zero_grad()
 
             # Update alpha
-            self.optimizers["alpha"].zero_grad()
             alpha_loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.optimizers["alpha"].param_groups[0]["params"], 1.0)
             self.optimizers["alpha"].step()
+            self.optimizers["alpha"].zero_grad()
 
             self.target_net_updater.step()
 

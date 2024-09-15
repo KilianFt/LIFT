@@ -17,8 +17,9 @@ from lift.rl.utils import (
 )
 
 
-class AlgoBase(ABC):
+class AlgoBase(nn.Module):
     def __init__(self, config, train_env, eval_env, in_keys=["observation"]):
+        super().__init__()
         self.config = config
         self.train_env = train_env
         self.eval_env = eval_env
@@ -36,23 +37,36 @@ class AlgoBase(ABC):
         pass
 
     @abstractmethod
-    def train(self, logger=None):
+    def train_agent(self, logger=None):
         pass
     
-    def sample_action(self, obs, sample_mean=False):
+    def get_action_dist(self, obs):
         if not isinstance(obs, TensorDict):
             obs = obs["observation"]
             if not isinstance(obs, torch.Tensor):
                 obs = torch.from_numpy(obs).to(torch.float32)
-            obs = TensorDict({"observation": obs})#, [])
+            obs = TensorDict({"observation": obs})
 
         with torch.no_grad():
             act_dist = self.model.policy.get_dist(obs)
-        if sample_mean:
-            act = act_dist.loc
+        return act_dist
+    
+    def sample_action(self, obs, sample_mean=False, return_numpy=True):
+        if not isinstance(obs, TensorDict):
+            obs = obs["observation"]
+            if not isinstance(obs, torch.Tensor):
+                obs = torch.from_numpy(obs).to(torch.float32)
+            obs = TensorDict({"observation": obs})
+        
+        act_dist = self.get_action_dist(obs)
+        if sample_mean:            
+            act = act_dist.mode
         else:
             act = act_dist.sample()
-        return act.numpy()
+        
+        if return_numpy:
+            act = act.data.cpu().numpy()
+        return act
     
     def _post_init_loss_module(self):
         self.loss_module.make_value_estimator(gamma=self.config.gamma)
@@ -110,6 +124,7 @@ class AlgoBase(ABC):
             distribution_kwargs=dist_kwargs,
             default_interaction_type=InteractionType.RANDOM,
             return_log_prob=False,
+            safe=True, # this forces the actor to stay in action_spec bounds
         )
 
         # Define Critic Network

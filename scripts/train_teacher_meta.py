@@ -1,6 +1,6 @@
 from configs import BaseConfig
 from lift.rl.sac_meta import MetaSAC
-from lift.rl.utils import parallel_env_maker
+from lift.rl.env_utils import parallel_env_maker
 from torchrl.record.loggers import generate_exp_name, get_logger
 
 def main():
@@ -16,7 +16,7 @@ def main():
             wandb_kwargs={
                 "mode": config.wandb_mode,
                 "config": dict(config),
-                "project": config.project_name,
+                "project": f"{config.project_name}_teacher",
                 "group": "teacher",
             },
         )
@@ -47,10 +47,9 @@ def main():
         config.teacher, 
         train_env,
         eval_env,
-        use_alpha=config.alpha_range != None,
     )
-    sac.train(logger)
-    sac.save(config.models_path / "teacher_meta.pt")
+    sac.train_agent(logger)
+    sac.save(config.models_path / config.teacher.meta_teacher_filename)
 
 if __name__ == "__main__":
     main()
