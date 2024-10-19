@@ -2,6 +2,7 @@ from lift.rl.sac import SAC
 from lift.rl.sac_meta import MetaSAC
 from lift.rl.env_utils import parallel_env_maker
 
+
 def load_teacher(config, load_frozen=True, meta=False, filename=None):
     train_env = parallel_env_maker(
         config.teacher.env_name,

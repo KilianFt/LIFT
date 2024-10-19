@@ -2,7 +2,6 @@ import os
 import pickle
 import wandb
 import torch
-import torch.nn as nn
 import numpy as np
 import lightning as L
 from pytorch_lightning.loggers import WandbLogger
@@ -17,12 +16,9 @@ from lift.teacher import load_teacher
 from lift.utils import normalize
 
 from lift.datasets import (
-    get_samples_per_group,
     weighted_augmentation,
     load_all_mad_datasets, 
-    mad_groupby_labels,
     mad_labels_to_actions,
-    mad_augmentation, 
     compute_features, 
     get_dataloaders, 
 )
@@ -84,33 +80,17 @@ def load_fake_data(config):
     actions_dof = torch.cat([a.view(1, -1).repeat_interleave(num_samples, 0) for a in data["action"]], dim=0)
     
     # data augmentation
-    emg_aug, actions_aug = mad_augmentation(data["emg"], data["action"], config.pretrain.num_augmentation)
-    emg = torch.cat([emg_dof, emg_aug], dim=0)
+    # emg_aug, actions_aug = mad_augmentation(data["emg"], data["action"], config.pretrain.num_augmentation)
+    features_aug, actions_aug = weighted_augmentation(emg_dof, actions_dof, config)
+    features_dof = compute_features(emg_dof)
+
+    features = torch.cat([features_dof, features_aug], dim=0)
     actions = torch.cat([actions_dof, actions_aug], dim=0)
 
-    emg_features = compute_features(emg)
+    return features, actions
 
-    return emg_features, actions
-
-def load_augmentation(mad_windows, mad_labels, mad_actions, config):
-    if config.simulator.interpolation == "weighted":        
-        sample_features, sample_actions = weighted_augmentation(mad_windows, mad_actions, config)
-    elif config.simulator.interpolation == "random":
-        window_list, label_list = mad_groupby_labels(mad_windows, mad_labels)
-        actions_list = mad_labels_to_actions(
-            label_list, recording_strength=config.simulator.recording_strength,
-        )
-        sample_windows, sample_actions = mad_augmentation(
-            window_list, 
-            actions_list, 
-            config.pretrain.num_augmentation,
-            augmentation_distribution=config.pretrain.augmentation_distribution,
-            reduction=config.simulator.reduction,
-        )
-        sample_features = compute_features(sample_windows)
-    else:
-        raise NotImplementedError(f"Interpolation {config.simulator.interpolation} not found")
-    
+def load_augmentation(mad_windows, mad_actions, config):
+    sample_features, sample_actions = weighted_augmentation(mad_windows, mad_actions, config)
     return sample_features, sample_actions
 
 def load_data(config: BaseConfig, load_fake=False):
@@ -118,7 +98,6 @@ def load_data(config: BaseConfig, load_fake=False):
         return load_fake_data(config)
 
     all_people_list = [f"Female{i}" for i in range(10)] + [f"Male{i}" for i in range(16)]
-    # people_list = [p for p in all_people_list if not p == config.target_person]
 
     train_features = None
     train_actions = None
@@ -145,21 +124,10 @@ def load_data(config: BaseConfig, load_fake=False):
             p_labels, recording_strength=config.simulator.recording_strength,
         )
 
-        if config.simulator.interpolation == "weighted":
-            p_features = compute_features(p_windows, feature_list=['MAV'])
-        else:
-            p_features = compute_features(p_windows)
+        p_features = compute_features(p_windows, feature_list=['MAV'])
 
         if config.pretrain.num_augmentation > 0:
-            # sample only one window for each action in augementation
-            # this prevents augmentation to pick samples from the same action
-            # p_windows_aug, p_labels_aug = get_samples_per_group(p_windows, p_labels, 1)
-            # p_actions_aug = mad_labels_to_actions(
-            #     p_labels_aug, recording_strength=config.simulator.recording_strength,
-            # )
-            # sample_features, sample_actions = load_augmentation(p_windows_aug, p_labels_aug,
-            #                                                     p_actions_aug, config)
-            sample_features, sample_actions = load_augmentation(p_windows, p_labels, p_actions, config)
+            sample_features, sample_actions = load_augmentation(p_windows, p_actions, config)
 
             if config.pretrain.train_subset == "interpolation":
                 features = sample_features
@@ -236,8 +204,6 @@ def main():
     sim = SimulatorFactory.create_class(
         data_path,
         config,
-        return_features=True,
-        # num_samples_per_group=1,
     )
 
     env = NpGymEnv(

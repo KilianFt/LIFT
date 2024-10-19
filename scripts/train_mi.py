@@ -2,7 +2,6 @@ import os
 import pickle
 import wandb
 import torch
-import torch.nn as nn
 import logging
 import numpy as np
 import lightning as L
@@ -42,14 +41,6 @@ def maybe_rollout(env: EMGEnv, policy: EMGAgent, config: BaseConfig, use_saved=T
         with open(rollout_file, "wb") as f:
             pickle.dump(data, f)
     return data
-
-# def append_sl_data(data, sl_data, config):
-#     # sample indexes
-#     data_len = data['act'].shape[0]
-#     sl_data_len = sl_data['sl_act'].shape[0]
-#     sl_idxs = torch.randint(0, sl_data_len, (data_len,))
-#     data['sl_act'] = sl_data['sl_act'][sl_idxs]
-#     data['sl_emg_obs'] = sl_data['sl_emg_obs'][sl_idxs]
 
 def get_ft_data(data, emg_mu, emg_sd):
     ft_data = {
@@ -153,13 +144,6 @@ def validate(env, teacher, sim, encoder, mu, sd, logger):
     return mean_rwd, std_rwd, mae
 
 def train(data_dict, model, logger, config: BaseConfig):
-    # sl_data_dict = {
-    #     "obs": data["obs"]["observation"],
-    #     "emg_obs": data["obs"]["emg_observation"],
-    #     "intended_action": data["info"]["intended_action"],
-    #     "sl_emg_obs": data["sl_emg_obs"],
-    #     "sl_act": data["sl_act"],
-    # }
     train_dataloader, val_dataloader = get_dataloaders(
         data_dict=data_dict,
         train_ratio=config.mi.train_ratio,
@@ -196,7 +180,7 @@ def main():
     L.seed_everything(config.seed)
 
     # teacher = load_teacher(config)
-    teacher = load_teacher(config, meta=True, filename="teacher_meta_3_layer_relu.pt")
+    teacher = load_teacher(config, meta=True)
     teacher = ConditionedTeacher(
         teacher, 
         noise_range=[0., 0.], 
@@ -209,7 +193,6 @@ def main():
     sim = SimulatorFactory.create_class(
         data_path,
         config,
-        return_features=True,
     )
 
     env = NpGymEnv(
