@@ -6,7 +6,6 @@ lightning==2.1.2
 stable-baselines3==2.2.1
 gymnasium-robotics==1.2.3
 libemg==0.0.1
-nevergrad==1.0.1
 PyWavelets==1.5.0
 wandb==0.16.1
 pydantic==2.5.3
