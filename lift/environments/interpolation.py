@@ -2,45 +2,6 @@ import random
 import torch
 
 
-# class WeightedInterpolator:
-#     def __init__(self, features, actions, k=None, sample=False):
-#         self.features = features
-#         self.actions = actions
-#         self.epsilon = 1e-5
-#         self.k = k
-#         self.sample = sample
-
-#     def __call__(self, new_actions):
-#         if not isinstance(new_actions, torch.Tensor):
-#             new_actions = torch.tensor(new_actions, dtype=torch.float32)
-#         # Step 1: Calculate distances for each new action
-#         # This results in a (batch_size, num_samples) distance matrix
-#         distances = torch.norm(self.actions - new_actions[:, None, :], dim=2)
-
-#         # Step 2: Compute interpolation weights
-#         weights = 1 / (distances + self.epsilon)
-#         weights /= weights.sum(axis=1, keepdims=True)
-
-#         # Step 4: select k elements of the weights, set rest to 0
-#         if self.k is not None:
-#             if self.sample:
-#                 indices = torch.multinomial(weights, self.k, replacement=False)
-#             else:
-#                 indices = torch.topk(weights, k=self.k, dim=1).indices
-
-#             mask = torch.zeros_like(weights)
-#             mask.scatter_(1, indices, 1)
-
-#             sampled_weights = weights * mask
-#             sampled_weights /= sampled_weights.sum(dim=1, keepdim=True)
-
-#             weights = sampled_weights
-
-#         # Step 3: Interpolate features
-#         interpolated_features_batch = torch.tensordot(weights, self.features, dims=([1],[0]))
-#         return interpolated_features_batch
-
-
 class WeightedInterpolator:
     def __init__(self, features, actions, k=None, sample=False):
         self.features = features

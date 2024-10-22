@@ -64,14 +64,10 @@ def main():
     L.seed_everything(100)
 
     config = BaseConfig()
-    config.simulator.base_noise = 0.0
-    config.simulator.limits_noise = 0.0
-    config.simulator.bias_noise = 0.0
     data_path = (config.mad_data_path / "Female0"/ "training0").as_posix()
     sim = SimulatorFactory.create_class(
         data_path,
         config,
-        return_features=True,
     )
 
     logger = WandbLogger(project='lift', tags='sim_testing')
