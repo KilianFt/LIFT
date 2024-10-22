@@ -5,7 +5,6 @@ import torch.nn.functional as F
 import torch.distributions as torch_dist
 from tensordict import TensorDict
 from torchrl.modules.distributions import TanhNormal
-from torchrl.modules import ProbabilisticActor
 from torchrl.envs.utils import ExplorationType, set_exploration_type
 
 from configs import BaseConfig
@@ -15,6 +14,7 @@ from lift.rl.sac import SAC
 from lift.environments.teacher_envs import ConditionedTeacher
 from lift.rl.utils import get_activation
 from lift.utils import cross_entropy, normalize
+
 
 class CategoricalEncoder(nn.Module):
     """Output a categorical distribution"""
@@ -125,13 +125,7 @@ class BCTrainer(L.LightningModule):
         self.target_std = config.pretrain.target_std
         self.beta = 0.1
 
-    # def compute_loss(self, dist, a):
-    #     loss = -dist.log_prob(a).mean() / self.a_dim
-    #     return loss
-    
     def compute_loss(self, dist, a):
-        # mae = torch.abs(dist.mode - a).mean()
-        # std_loss = torch.abs(dist.scale - self.target_std).mean()
         mode_loss = nn.SmoothL1Loss().forward(dist.mode, a)
         if self.target_std is not None:
             std_loss = torch.pow(dist.scale - self.target_std, 2).mean()
@@ -312,9 +306,6 @@ class MITrainer(L.LightningModule):
         if self.supervise:
             y_dist = torch_dist.Normal(z, torch.ones(1, device=z.device) * self.sl_sd)
             loss = -y_dist.log_prob(y).sum(-1).mean()
-            
-            # loss = torch.pow(z - y, 2).mean()
-            # loss = nn.SmoothL1Loss().forward(z, y)
         else:
             loss = torch.zeros(1, device=z.device)
 
@@ -330,51 +321,6 @@ class MITrainer(L.LightningModule):
         sample_idx_neg = torch.randint(len(x), size=(self.num_neg_samples,))
         x_neg = x[sample_idx_neg]
         return x_neg
-    
-    # def compute_loss(self, batch):
-    #     sl_x = batch["pt_emg_obs"]
-    #     sl_y = batch["pt_act"]
-    #     x = sl_x
-    #     o = None
-
-    #     z_dist = self.encoder.get_dist(x)
-    #     z = z_dist.rsample()
-
-    #     x_neg = self.get_neg_samples(x)
-    #     mi_loss, mi_stats = self.compute_mi_loss(x, z, x_neg)
-    #     kl_loss, kl_stats = self.compute_kl_loss(z, z_dist, y=sl_y)
-
-    #     # compute this on augmented supervised dataset
-    #     sl_loss, sl_stats = self.compute_sl_loss(z, sl_y)
-
-    #     loss = self.beta_1 * mi_loss + self.beta_2 * kl_loss + self.beta_3 * sl_loss
-
-    #     with torch.no_grad():
-    #         pred_a = z_dist.mode
-
-    #     if "intended_action" in batch.keys():
-    #         teacher_inputs = TensorDict({"observation": o})
-    #         with set_exploration_type(ExplorationType.MODE), torch.no_grad():
-    #             teacher_a = self.teacher(teacher_inputs)["action"]
-                
-    #         intended_a = batch["intended_action"]
-    #         mae = torch.abs(pred_a - intended_a).mean().data.cpu().item()
-    #         missalignment_mae = torch.abs(teacher_a - intended_a).mean().data.cpu().item()
-    #         intended_magnitude = intended_a.abs().mean()
-    #     else:
-    #         mae = 0.
-    #         missalignment_mae = 0.
-    #         intended_magnitude = 0.
-
-    #     stats = {
-    #         "loss": loss.data.cpu().item(),
-    #         "kl_loss": kl_loss.cpu().item(),
-    #         "act_mae": mae,
-    #         "missalignment_mae": missalignment_mae,
-    #         "intended_magnitude": intended_magnitude,
-    #         **mi_stats, **kl_stats, **sl_stats,
-    #     }
-    #     return loss, stats
 
     def compute_loss_pt(self, batch):
         """Pretrain loss"""
@@ -431,7 +377,6 @@ class MITrainer(L.LightningModule):
 
         if self.only_copy_teacher:
             # only sl on teacher for comparison
-            # ft_loss = ft_sl_loss
             ft_loss = ft_kl_loss
         else:
             # default fine-tune loss
@@ -514,7 +459,6 @@ class EMGPolicy(L.LightningModule):
         return val_loss
 
     def configure_optimizers(self):
-        # FIXME do we compute the gradient of the teacher here?
         optimizer = torch.optim.Adam(self.parameters(), lr=self.lr)
         return optimizer
 

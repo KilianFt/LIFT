@@ -2,7 +2,6 @@
 *.pkl
 lightning_logs/
 wandb/
-figures/
 datasets/
 tmp/
 test.ipynb

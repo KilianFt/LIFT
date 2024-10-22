@@ -14,6 +14,7 @@ from sklearn.preprocessing import LabelEncoder
 
 from lift.environments.interpolation import WeightedInterpolator
 
+
 class EMGSLDataset(Dataset):
     """Supervised learning dataset"""
     def __init__(self, data_dict):
@@ -453,95 +454,6 @@ def mad_labels_to_actions(labels: list, recording_strength: float = 1.0):
     actions *= recording_strength
     return actions
 
-
-def interpolate_emg(base_emg, base_actions, actions, reduction='abs', no_clip=False):
-    # interpolate emg as: (abs - baseline) * act
-    # init emg samples with baseline
-    num_augmentation, act_dim = actions.shape
-
-    emg_baseline = base_emg['baseline']
-    idx_sample_baseline = torch.randint(len(emg_baseline), (num_augmentation,))
-    sample_baseline = emg_baseline[idx_sample_baseline]
-    sample_emg = torch.zeros(*[num_augmentation] + list(emg_baseline.shape)[1:])
-    for i in range(act_dim):
-        idx_sample_pos = torch.randint(len(emg_baseline), (num_augmentation,))
-        idx_sample_neg = torch.randint(len(emg_baseline), (num_augmentation,))
-        pos_component = base_emg['pos'][i][idx_sample_pos] / base_actions['pos'][i][i].abs()
-        neg_component = base_emg['neg'][i][idx_sample_neg] / base_actions['neg'][i][i].abs()
-        
-        abs_action = actions[:, i].abs().view(-1, 1, 1)
-        is_pos = 1 * (actions[:, i] > 0).view(-1, 1, 1)
-        sample_emg += (
-            is_pos * abs_action * pos_component + \
-            (1 - is_pos) * abs_action * neg_component
-        )
-
-    if reduction == 'mean':
-        sample_emg = sample_emg / act_dim + sample_baseline
-    elif reduction == 'abs':
-        sample_emg = sample_emg / actions.abs().sum(dim=-1).clip(min=1.0)[:, None, None] + sample_baseline
-    else:
-        raise ValueError("reduction must be 'mean' or 'abs'")
-
-    if not no_clip:
-        sample_emg = torch.clip(sample_emg, -1, 1)
-    return sample_emg
-
-
-def mad_augmentation(
-    emg: list[torch.Tensor], 
-    actions: list[torch.Tensor], 
-    num_augmentation: int, 
-    augmentation_distribution: str = 'uniform',
-    reduction: str = 'act_dim',
-):
-    """Discrete emg data augmentation using random interpolation
-
-    Args:
-        emg (list[torch.Tensor]): list of emg windows for each dof activation
-        actions (list[torch.Tensor]): list of dof activations for each discrete action
-        num_augmentation (int): number of augmented samples to generate
-        augmentation_distribution (str): distribution to sample from. choices = ["uniform", "normal"]
-
-    Returns:
-        sample_emg (torch.tensor): sampled emgs windows. size=[num_augmentation, num_channels, window_size]
-        sample_actions (torch.tensor): sampled actions. size=[num_augmentation, act_dim]
-    """
-    assert torch.all(actions == 0, dim=1).any(), "Baseline action (0, 0, 0) required for augmentation"
-    idx_baseline = [i for i in range(len(actions)) if torch.all(actions[i] == 0)][0]
-    idx_pos = [i for i in range(len(actions)) if torch.any(actions[i] > 0)]
-    idx_neg = [i for i in range(len(actions)) if torch.any(actions[i] < 0)]
-    
-    # truncate to the smallest sample size
-    min_samples = min([el.shape[0] for el in emg])
-    emg = [el[:min_samples] for el in emg]
-
-    emg_baseline = emg[idx_baseline]
-    base_emg = TensorDict({
-        'baseline': emg_baseline,
-        'pos': torch.stack([emg[i] - emg_baseline for i in idx_pos]),
-        'neg': torch.stack([emg[i] - emg_baseline for i in idx_neg]),
-    })
-
-    base_actions = TensorDict({
-        'baseline': actions[idx_baseline],
-        'pos': torch.stack([actions[i] for i in idx_pos]),
-        'neg': torch.stack([actions[i] for i in idx_neg]),
-    })
-
-    act_dim = actions.shape[-1]
-
-    if augmentation_distribution == 'uniform':
-        sample_actions = torch.rand(num_augmentation, act_dim) * 2 - 1
-    elif augmentation_distribution == 'normal':
-        sample_actions = torch.normal(0, .5, (num_augmentation, act_dim)).clip(-1, 1)
-    else:
-        raise ValueError("augmentation_distribution must be 'uniform' or 'normal'")
-    
-    sample_emg = interpolate_emg(base_emg, base_actions, sample_actions, reduction)
-    
-    return sample_emg, sample_actions
-
 def weighted_augmentation(mad_windows, mad_actions, config):
     mad_features = compute_features(mad_windows, feature_list = ['MAV'])
     interpolator = WeightedInterpolator(mad_features, mad_actions,
@@ -675,17 +587,17 @@ if __name__ == "__main__":
     assert torch.all(mad_windows.abs() <= 1.)
 
     # test augmentation
-    window_list, label_list = mad_groupby_labels(mad_windows, mad_labels)
-    actions_list = mad_labels_to_actions(
-        label_list, recording_strength=config.simulator.recording_strength,
-    )
-    sample_windows, sample_actions = mad_augmentation(
-        window_list, 
-        actions_list, 
-        config.pretrain.num_augmentation,
-        augmentation_distribution=config.pretrain.augmentation_distribution
-    )
-    assert list(sample_windows.shape) == [config.pretrain.num_augmentation, config.n_channels, config.window_size]
-    assert list(sample_actions.shape) == [config.pretrain.num_augmentation, 3]
-    assert torch.all(sample_actions.abs() <= 1.)
-    assert torch.all(sample_windows.abs() <= 1.)
+    # window_list, label_list = mad_groupby_labels(mad_windows, mad_labels)
+    # actions_list = mad_labels_to_actions(
+    #     label_list, recording_strength=config.simulator.recording_strength,
+    # )
+    # sample_windows, sample_actions = mad_augmentation(
+    #     window_list, 
+    #     actions_list, 
+    #     config.pretrain.num_augmentation,
+    #     augmentation_distribution=config.pretrain.augmentation_distribution
+    # )
+    # assert list(sample_windows.shape) == [config.pretrain.num_augmentation, config.n_channels, config.window_size]
+    # assert list(sample_actions.shape) == [config.pretrain.num_augmentation, 3]
+    # assert torch.all(sample_actions.abs() <= 1.)
+    # assert torch.all(sample_windows.abs() <= 1.)

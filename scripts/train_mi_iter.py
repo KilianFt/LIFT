@@ -117,7 +117,6 @@ def main():
     sim = SimulatorFactory.create_class(
         (config.mad_data_path / config.target_person / "training0").as_posix(),
         config,
-        return_features=True,
     )
     
     # when noise, slope and alpha is set, overwrite ranges here

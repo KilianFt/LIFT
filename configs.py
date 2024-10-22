@@ -49,7 +49,7 @@ class TeacherConfig(BaseModel):
     eval_iter: int = 5000
 
     teacher_filename: str = "teacher.pt"
-    meta_teacher_filename: str = "teacher_meta_3_layer_relu.pt"
+    meta_teacher_filename: str = "teacher_meta.pt"
     
 
 class OfflineRLConfig(BaseModel):
@@ -94,15 +94,14 @@ class EncoderConfig(BaseModel):
     activation: str = "silu"  # "relu", "tanh", "silu", "leaky_relu"
 
 
-
 class SimulatorConfig(BaseModel):
-    parametric: bool = False
-    interpolation: str = "weighted" # choices=["weighted", "random"]
-    reduction: str = "abs" # choices=["mean", "abs"] mean: /act_dict; abs: / actions.abs().sum(dim=-1)
-    bias_noise: float = 0.005
-    limits_noise: float = 0.01
-    base_noise: float = 0.005
-    n_bursts: int = 1
+    # parametric: bool = False
+    # interpolation: str = "weighted" # choices=["weighted", "random"]
+    # reduction: str = "abs" # choices=["mean", "abs"] mean: /act_dict; abs: / actions.abs().sum(dim=-1)
+    # bias_noise: float = 0.005
+    # limits_noise: float = 0.01
+    # base_noise: float = 0.005
+    # n_bursts: int = 1
     recording_strength: float = 0.8
     k: int | None = 3 # number of samples considered in weighted simulator
     sample: bool = False
@@ -125,7 +124,6 @@ class PretrainConfig(BaseModel):
 class MIConfig(BaseModel):
     beta_1: float = 1.0 # mi weight, use 0.5 for mse
     beta_2: float = 0.5 # kl weight
-    # beta_3: float = 1.0 # sl weight
     entropy_beta: float = 0.01
     ft_weight: float = 1. # finetune loss weight
     pt_weight: float = 0.5 # pretrain loss weight
@@ -188,9 +186,8 @@ class BaseConfig(BaseModel):
     noise_slope: float | None = 0.
     alpha: float | None = 1.
 
-    noise_drift: list | None = None#[-0.1, 0.0] # [offset, std]
-    alpha_drift: list | None = None#[-0.1, 0.0] # [-0.1, 0.2] # [offset, std]
-    # what if user is biased?
+    noise_drift: list | None = None # [offset, std]
+    alpha_drift: list | None = None # [offset, std]
     user_bias: float | None = None
 
     seed: int = 1001

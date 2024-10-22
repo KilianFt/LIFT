@@ -162,7 +162,6 @@ def main():
     sim = SimulatorFactory.create_class(
         data_path,
         config,
-        return_features=True,
     )
         
     env = NpGymEnv(
