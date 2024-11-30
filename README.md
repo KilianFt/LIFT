@@ -12,7 +12,7 @@ We validate LIFT in a simulated robotic control task, demonstrating its effectiv
 <img src="figures/mi_mae_improvement.png" alt="Workflow" width="900"/>
 
 
-Check out our [paper TODO]() for more details.
+Check out our [paper](https://openreview.net/forum?id=qmmF8YAr5a) for more details.
 
 # Training
 Create a conda environment and install the required packages
